@@ -1,0 +1,130 @@
+// Pure helpers over the Library snapshot. No Tauri imports — unit-testable.
+
+import {
+  UNCLASSIFIED_COLLECTION,
+  type Collection,
+  type Item,
+  type Library,
+} from "../types";
+
+export interface CollectionNode {
+  collection: Collection;
+  children: CollectionNode[];
+  /** Items directly in this collection. */
+  itemCount: number;
+  /** Items in this collection or any descendant. */
+  totalCount: number;
+}
+
+const byName = (a: CollectionNode, b: CollectionNode) =>
+  a.collection.name.localeCompare(b.collection.name, undefined, {
+    sensitivity: "base",
+    numeric: true,
+  });
+
+/** Build the nested collection tree, sorted by name at every level. */
+export function buildTree(library: Library): CollectionNode[] {
+  const nodes = new Map<string, CollectionNode>();
+  for (const c of library.collections) {
+    nodes.set(c.key, { collection: c, children: [], itemCount: 0, totalCount: 0 });
+  }
+  for (const item of library.items) {
+    for (const key of item.collectionKeys) {
+      const n = nodes.get(key);
+      if (n) n.itemCount += 1;
+    }
+  }
+  const roots: CollectionNode[] = [];
+  for (const n of nodes.values()) {
+    const parent = n.collection.parentKey ? nodes.get(n.collection.parentKey) : undefined;
+    if (parent) parent.children.push(n);
+    else roots.push(n);
+  }
+  const total = (n: CollectionNode): number => {
+    n.children.sort(byName);
+    n.totalCount = n.itemCount + n.children.reduce((s, c) => s + total(c), 0);
+    return n.totalCount;
+  };
+  roots.forEach(total);
+  roots.sort(byName);
+  return roots;
+}
+
+/** A collection key plus all of its descendants' keys. */
+export function descendantKeys(library: Library, rootKey: string): Set<string> {
+  const childrenOf = new Map<string, string[]>();
+  for (const c of library.collections) {
+    if (!c.parentKey) continue;
+    const arr = childrenOf.get(c.parentKey) ?? [];
+    arr.push(c.key);
+    childrenOf.set(c.parentKey, arr);
+  }
+  const keys = new Set<string>([rootKey]);
+  const stack = [rootKey];
+  while (stack.length) {
+    for (const child of childrenOf.get(stack.pop()!) ?? []) {
+      if (!keys.has(child)) {
+        keys.add(child);
+        stack.push(child);
+      }
+    }
+  }
+  return keys;
+}
+
+/** Items shown for a sidebar selection (collection + descendants). */
+export function itemsForCollection(library: Library, key: string): Item[] {
+  const keys = descendantKeys(library, key);
+  return library.items.filter((i) => i.collectionKeys.some((k) => keys.has(k)));
+}
+
+export function findUnclassifiedCollection(library: Library): Collection | null {
+  return (
+    library.collections.find(
+      (c) =>
+        c.parentKey === null &&
+        c.name.localeCompare(UNCLASSIFIED_COLLECTION, undefined, {
+          sensitivity: "base",
+        }) === 0,
+    ) ?? null
+  );
+}
+
+/**
+ * Unclassified = items in the top-level "Unclassified" collection, plus
+ * items that belong to no collection at all.
+ */
+export function unclassifiedItems(library: Library): Item[] {
+  const uc = findUnclassifiedCollection(library);
+  return library.items.filter(
+    (i) =>
+      i.collectionKeys.length === 0 ||
+      (uc !== null && i.collectionKeys.includes(uc.key)),
+  );
+}
+
+export function collectionPath(library: Library, key: string): string[] {
+  const path: string[] = [];
+  let cursor: string | null = key;
+  let guard = 0;
+  while (cursor && guard++ < 64) {
+    const col: Collection | undefined = library.collections.find((c) => c.key === cursor);
+    if (!col) break;
+    path.unshift(col.name);
+    cursor = col.parentKey;
+  }
+  return path;
+}
+
+/** All existing collection paths, root→leaf, for pickers and the classifier. */
+export function allPaths(library: Library): string[][] {
+  return library.collections.map((c) => collectionPath(library, c.key));
+}
+
+export function formatAuthors(creators: string[], max = 3): string {
+  if (creators.length === 0) return "—";
+  if (creators.length <= max) return creators.join(", ");
+  return `${creators.slice(0, max).join(", ")} +${creators.length - max}`;
+}
+
+export const pathLabel = (path: string[]): string => path.join(" / ");

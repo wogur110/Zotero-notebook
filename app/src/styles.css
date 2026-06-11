@@ -1,0 +1,154 @@
+@import "tailwindcss";
+
+/* ----------------------------------------------------------------------
+   Design tokens. Semantic variables are defined per-theme on :root /
+   [data-theme="dark"], then exposed to Tailwind utilities via @theme
+   inline (e.g. `bg-surface`, `text-muted`, `border-edge`).
+   ---------------------------------------------------------------------- */
+
+:root {
+  /* Ink & paper: warm near-white canvas, graphite text, scholarly crimson */
+  --bg: #f7f6f3;
+  --surface: #fffefb;
+  --raised: #ffffff;
+  --inset: #efede8;
+  --edge: #e3e0d8;
+  --edge-strong: #c9c5b9;
+  --text: #21201c;
+  --muted: #6b675c;
+  --faint: #9b968a;
+  --accent: #a52f22;
+  --accent-hover: #8c2418;
+  --accent-soft: #f6e7e4;
+  --accent-text: #ffffff;
+  --ok: #2f7d4f;
+  --ok-soft: #e2f0e7;
+  --warn: #9a6b15;
+  --warn-soft: #f7edd8;
+  --danger: #b03030;
+  --danger-soft: #f7e3e3;
+  --info: #2c5d8f;
+  --info-soft: #e3ecf5;
+  --shadow-soft: 0 1px 2px rgb(33 32 28 / 0.06), 0 4px 16px rgb(33 32 28 / 0.07);
+  --shadow-pop: 0 4px 12px rgb(33 32 28 / 0.12), 0 16px 48px rgb(33 32 28 / 0.18);
+}
+
+[data-theme="dark"] {
+  --bg: #191815;
+  --surface: #201f1b;
+  --raised: #262521;
+  --inset: #141311;
+  --edge: #34322c;
+  --edge-strong: #4a473f;
+  --text: #ebe9e4;
+  --muted: #a39e92;
+  --faint: #726e64;
+  --accent: #d8654f;
+  --accent-hover: #e3796a;
+  --accent-soft: #3a2520;
+  --accent-text: #1b0f0c;
+  --ok: #6fbf8f;
+  --ok-soft: #1f322a;
+  --warn: #d4a04f;
+  --warn-soft: #362c1a;
+  --danger: #e07070;
+  --danger-soft: #3a2222;
+  --info: #7aa7d4;
+  --info-soft: #1f2c3a;
+  --shadow-soft: 0 1px 2px rgb(0 0 0 / 0.4), 0 4px 16px rgb(0 0 0 / 0.35);
+  --shadow-pop: 0 4px 12px rgb(0 0 0 / 0.5), 0 16px 48px rgb(0 0 0 / 0.55);
+}
+
+@theme inline {
+  --color-bg: var(--bg);
+  --color-surface: var(--surface);
+  --color-raised: var(--raised);
+  --color-inset: var(--inset);
+  --color-edge: var(--edge);
+  --color-edge-strong: var(--edge-strong);
+  --color-text: var(--text);
+  --color-muted: var(--muted);
+  --color-faint: var(--faint);
+  --color-accent: var(--accent);
+  --color-accent-hover: var(--accent-hover);
+  --color-accent-soft: var(--accent-soft);
+  --color-accent-text: var(--accent-text);
+  --color-ok: var(--ok);
+  --color-ok-soft: var(--ok-soft);
+  --color-warn: var(--warn);
+  --color-warn-soft: var(--warn-soft);
+  --color-danger: var(--danger);
+  --color-danger-soft: var(--danger-soft);
+  --color-info: var(--info);
+  --color-info-soft: var(--info-soft);
+  --font-sans:
+    ui-sans-serif, system-ui, "Segoe UI", Roboto, "Helvetica Neue", Arial,
+    "Noto Sans", sans-serif;
+  --shadow-soft: var(--shadow-soft);
+  --shadow-pop: var(--shadow-pop);
+}
+
+html,
+body,
+#root {
+  height: 100%;
+}
+
+body {
+  @apply bg-bg text-text font-sans antialiased;
+  font-size: 14px;
+  overscroll-behavior: none;
+}
+
+/* Desktop app niceties */
+::selection {
+  background: var(--accent-soft);
+}
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--edge-strong) transparent;
+}
+
+/* Reusable primitives ------------------------------------------------- */
+
+.btn,
+.btn-primary,
+.btn-secondary,
+.btn-ghost,
+.btn-danger {
+  @apply inline-flex items-center justify-center gap-1.5 rounded-md px-3 py-1.5
+    text-sm font-medium transition-colors select-none
+    disabled:opacity-50 disabled:pointer-events-none cursor-pointer;
+}
+.btn-primary {
+  @apply bg-accent text-accent-text hover:bg-accent-hover;
+}
+.btn-secondary {
+  @apply border border-edge-strong bg-raised text-text hover:bg-inset;
+}
+.btn-ghost {
+  @apply text-muted hover:bg-inset hover:text-text;
+}
+.btn-danger {
+  @apply bg-danger text-white hover:opacity-90;
+}
+
+.input {
+  @apply w-full rounded-md border border-edge bg-raised px-3 py-1.5 text-sm
+    text-text placeholder:text-faint
+    focus:outline-none focus:ring-2 focus:ring-accent/40 focus:border-accent;
+}
+
+.card {
+  @apply rounded-lg border border-edge bg-surface;
+  box-shadow: var(--shadow-soft);
+}
+
+.badge {
+  @apply inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-medium;
+}
+
+.kbd {
+  @apply rounded border border-edge-strong bg-inset px-1.5 py-0.5 text-[11px]
+    font-mono text-muted;
+}

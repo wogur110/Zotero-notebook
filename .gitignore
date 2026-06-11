@@ -1,0 +1,17 @@
+# Rust
+target/
+
+# Node
+node_modules/
+app/dist/
+
+# Build artifacts
+app/src-tauri/gen/
+app/src-tauri/resources/*.xpi
+zotero-plugin/*.xpi
+
+# Editors / OS
+.DS_Store
+*.swp
+.idea/
+.vscode/

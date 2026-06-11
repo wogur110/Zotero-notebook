@@ -1,0 +1,16 @@
+[workspace]
+resolver = "2"
+members = ["core", "app/src-tauri"]
+# Local development on machines without the GTK/WebKit system libraries can
+# still build and test everything that matters: `cargo test` runs only the
+# headless core crate by default. The Tauri shell builds in CI.
+default-members = ["core"]
+
+[workspace.dependencies]
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+tokio = { version = "1", features = ["macros", "rt-multi-thread", "time", "fs"] }
+reqwest = { version = "0.12", features = ["json", "rustls-tls", "stream"], default-features = false }
+thiserror = "2"
+log = "0.4"
+chrono = { version = "0.4", features = ["serde"] }

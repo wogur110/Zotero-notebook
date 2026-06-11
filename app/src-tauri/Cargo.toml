@@ -1,0 +1,28 @@
+[package]
+name = "zotero-notebook"
+version = "0.1.0"
+description = "Zotero Notebook — your Zotero library with AI summaries and automatic classification"
+authors = ["Jaehyeok"]
+edition = "2021"
+rust-version = "1.80"
+
+[lib]
+name = "app_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2", features = [] }
+tauri-plugin-log = "2"
+tauri-plugin-opener = "2"
+tauri-plugin-dialog = "2"
+
+zn-core = { path = "../../core" }
+
+serde = { workspace = true }
+serde_json = { workspace = true }
+tokio = { workspace = true }
+log = { workspace = true }
+chrono = { workspace = true }
