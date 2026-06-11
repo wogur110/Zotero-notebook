@@ -8,7 +8,7 @@ companion Zotero plugin.
 
 ```
 ┌───────────────────────────────┐        ┌──────────────────────────────┐
-│  Desktop app (Tauri 2)        │  HTTP  │  Zotero 7 (must be running)  │
+│  Desktop app (Tauri 2)        │  HTTP  │  Zotero 7–9 (running)        │
 │                               │ 23119  │                              │
 │  app/src   React + TS + Vite  │◄──────►│  zotero-plugin (.xpi)        │
 │  app/src-tauri  thin commands │        │   /zotero-notebook/ping      │

@@ -17,7 +17,7 @@ classification and synchronized collection/file moves.
 
 1. Get `zotero-notebook.xpi` — either from the GitHub Releases page or via
    **Settings → Zotero → Save plugin file (.xpi)…** inside the desktop app.
-2. In Zotero 7: **Tools → Plugins** → gear icon → **Install Plugin From
+2. In Zotero (7–9): **Tools → Plugins** → gear icon → **Install Plugin From
    File…** → select the `.xpi`.
 3. Restart Zotero.
 

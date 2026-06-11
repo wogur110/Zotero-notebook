@@ -8,7 +8,7 @@ the PDF's folder on disk **together**, transactionally.
 
 ```
 ┌───────────────────────────────┐        ┌──────────────────────────────┐
-│  Zotero Notebook (Tauri 2)    │  HTTP  │  Zotero 7 (must be running)  │
+│  Zotero Notebook (Tauri 2)    │  HTTP  │  Zotero 7–9 (running)        │
 │                               │ 23119  │                              │
 │  React UI  ·  Rust core       │◄──────►│  companion plugin (.xpi)     │
 │  AI: Gemini / Claude          │        │   /zotero-notebook/ping      │
@@ -49,7 +49,7 @@ failure.
 1. Download from [Releases](../../releases): the installer for your platform
    **and** `zotero-notebook.xpi`. (If the page is empty, the latest build is
    still a draft — open it and expand *Assets*.)
-2. Install the plugin in **Zotero 7**: Tools → Plugins → gear icon →
+2. Install the plugin in **Zotero** (7, 8, or 9): Tools → Plugins → gear icon →
    *Install Plugin From File…* → pick the `.xpi` → restart Zotero.
    You can also export the `.xpi` later from the app: *Settings → Zotero →
    Save plugin file*.

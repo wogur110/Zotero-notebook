@@ -13,7 +13,7 @@ pub mod zotero {
     //! Clients for the two HTTP surfaces of a locally running Zotero:
     //! - `plugin_api`: the Zotero Notebook companion plugin (read + write),
     //!   see `docs/PLUGIN_API.md`.
-    //! - `local_api`: Zotero 7's built-in read-only local API under
+    //! - `local_api`: Zotero's built-in read-only local API (7+) under
     //!   `/api/users/0`, used as a degraded fallback when the plugin is not
     //!   installed.
     pub mod local_api;

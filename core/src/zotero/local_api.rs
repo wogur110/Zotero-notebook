@@ -1,4 +1,4 @@
-//! Read-only fallback client for Zotero 7's built-in local API.
+//! Read-only fallback client for Zotero's built-in local API (Zotero 7+).
 //!
 //! Used when the companion plugin is not installed, so the user can at least
 //! browse the library. Quirks (learned the hard way in the previous app):
