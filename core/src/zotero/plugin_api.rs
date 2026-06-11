@@ -9,6 +9,22 @@ use crate::error::{Error, Result};
 use crate::models::{Library, MoveResult, ZoteroStatus};
 use crate::zotero::local_api;
 
+/// Lowest plugin version (major, minor) the app is willing to WRITE through.
+/// Bump together with breaking changes to docs/PLUGIN_API.md.
+pub const EXPECTED_PLUGIN_VERSION: (u32, u32) = (0, 1);
+
+/// True when `version` ("major.minor.patch") is at least
+/// `EXPECTED_PLUGIN_VERSION`. Unparsable versions are incompatible.
+pub fn plugin_version_compatible(version: &str) -> bool {
+    let mut parts = version.trim().split('.');
+    let major: u32 = match parts.next().and_then(|p| p.parse().ok()) {
+        Some(v) => v,
+        None => return false,
+    };
+    let minor: u32 = parts.next().and_then(|p| p.parse().ok()).unwrap_or(0);
+    (major, minor) >= EXPECTED_PLUGIN_VERSION
+}
+
 pub struct PluginClient {
     base_url: String,
     http: reqwest::Client,
@@ -38,17 +54,28 @@ struct ErrorBody {
 impl PluginClient {
     pub fn new(base_url: impl Into<String>) -> Self {
         let base_url = base_url.into().trim_end_matches('/').to_string();
+        // Generous total timeout: /library resolves a file path per item and
+        // /move-item moves PDFs on disk — both can be slow on big libraries
+        // or network drives. Connect stays tight so "Zotero not running" is
+        // detected quickly.
         let http = reqwest::Client::builder()
             .connect_timeout(Duration::from_secs(2))
-            .timeout(Duration::from_secs(30))
+            .timeout(Duration::from_secs(120))
             .build()
             .expect("reqwest client");
         PluginClient { base_url, http }
     }
 
     fn offline(&self, e: reqwest::Error) -> Error {
-        if e.is_connect() || e.is_timeout() {
+        // Only connect-phase failures mean Zotero is not running. A read
+        // timeout means Zotero IS there but slow — misreporting it as
+        // offline would tell the user to "start Zotero" for no reason.
+        if e.is_connect() {
             Error::ZoteroOffline(self.base_url.clone())
+        } else if e.is_timeout() {
+            Error::Other(format!(
+                "the request to Zotero timed out ({e}) — the library may be very large or the disk slow; try again"
+            ))
         } else {
             Error::Http(e)
         }
@@ -162,6 +189,22 @@ fn truncate(s: &str, max: usize) -> String {
             end -= 1;
         }
         format!("{}…", &s[..end])
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::plugin_version_compatible;
+
+    #[test]
+    fn version_compatibility() {
+        assert!(plugin_version_compatible("0.1.0"));
+        assert!(plugin_version_compatible("0.1"));
+        assert!(plugin_version_compatible("0.2.0"));
+        assert!(plugin_version_compatible("1.0.0"));
+        assert!(!plugin_version_compatible("0.0.9"));
+        assert!(!plugin_version_compatible(""));
+        assert!(!plugin_version_compatible("garbage"));
     }
 }
 

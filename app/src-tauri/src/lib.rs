@@ -32,9 +32,21 @@ impl AppState {
     }
 }
 
-fn build_provider(provider: Option<ProviderId>, s: &AppSettings) -> Result<AnyProvider> {
+/// Fetch a keychain entry off the async runtime. On Linux the keyring
+/// backend blocks on its own internal runtime — calling it directly from a
+/// tokio worker thread can panic ("cannot start a runtime from within a
+/// runtime"), so every keychain access from an async command goes through
+/// spawn_blocking.
+async fn get_key_blocking(id: ProviderId) -> Result<Option<String>> {
+    tauri::async_runtime::spawn_blocking(move || keychain::get_key(id))
+        .await
+        .map_err(|e| Error::Other(format!("keychain task failed: {e}")))?
+}
+
+async fn build_provider(provider: Option<ProviderId>, s: &AppSettings) -> Result<AnyProvider> {
     let id = provider.unwrap_or(s.default_provider);
-    let key = keychain::get_key(id)?
+    let key = get_key_blocking(id)
+        .await?
         .ok_or_else(|| Error::MissingApiKey(id.as_str().to_string()))?;
     Ok(match id {
         ProviderId::Gemini => AnyProvider::Gemini(zn_core::llm::gemini::GeminiClient::new(
@@ -106,7 +118,7 @@ async fn summarize_item(
     let s = state.settings();
     let library = fetch_library_any(&s).await?;
     let item = find_item(&library, &item_key)?;
-    let llm = build_provider(provider, &s)?;
+    let llm = build_provider(provider, &s).await?;
     let req = SummarizeRequest {
         title: item.title.clone(),
         creators: item.creators.clone(),
@@ -142,7 +154,7 @@ async fn classify_items(
 ) -> Result<Vec<ClassificationProposal>> {
     let s = state.settings();
     let library = fetch_library_any(&s).await?;
-    let llm = build_provider(provider, &s)?;
+    let llm = build_provider(provider, &s).await?;
     let total = item_keys.len();
     let mut proposals = Vec::new();
 
@@ -220,6 +232,18 @@ async fn apply_classifications(
 ) -> Result<Vec<MoveResult>> {
     let s = state.settings();
     let client = plugin_api::PluginClient::new(&s.zotero_base_url);
+
+    // Writes are gated on a compatible plugin (docs/PLUGIN_API.md,
+    // "Versioning"): an older plugin could silently mis-handle the wire
+    // format, so refuse instead.
+    let (plugin_version, _) = client.ping().await?;
+    if !plugin_api::plugin_version_compatible(&plugin_version) {
+        return Err(Error::Other(format!(
+            "the Zotero Notebook plugin (v{plugin_version}) is older than this app expects — \
+             update it from Settings → Zotero before applying moves"
+        )));
+    }
+
     let library = client.fetch_library().await?; // moves require the plugin
     let unclassified_key: Vec<String> = library
         .collections
@@ -333,25 +357,37 @@ fn save_settings(state: State<'_, AppState>, settings: AppSettings) -> Result<()
     zn_core::settings::save(&state.settings_path(), &settings)
 }
 
-#[tauri::command]
-fn save_api_key(provider: ProviderId, key: String) -> Result<()> {
-    keychain::save_key(provider, &key)
+fn keychain_task<T: Send + 'static>(
+    f: impl FnOnce() -> Result<T> + Send + 'static,
+) -> tauri::async_runtime::JoinHandle<Result<T>> {
+    tauri::async_runtime::spawn_blocking(f)
 }
 
 #[tauri::command]
-fn has_api_key(provider: ProviderId) -> Result<bool> {
-    keychain::has_key(provider)
+async fn save_api_key(provider: ProviderId, key: String) -> Result<()> {
+    keychain_task(move || keychain::save_key(provider, &key))
+        .await
+        .map_err(|e| Error::Other(format!("keychain task failed: {e}")))?
 }
 
 #[tauri::command]
-fn delete_api_key(provider: ProviderId) -> Result<()> {
-    keychain::delete_key(provider)
+async fn has_api_key(provider: ProviderId) -> Result<bool> {
+    keychain_task(move || keychain::has_key(provider))
+        .await
+        .map_err(|e| Error::Other(format!("keychain task failed: {e}")))?
+}
+
+#[tauri::command]
+async fn delete_api_key(provider: ProviderId) -> Result<()> {
+    keychain_task(move || keychain::delete_key(provider))
+        .await
+        .map_err(|e| Error::Other(format!("keychain task failed: {e}")))?
 }
 
 #[tauri::command]
 async fn test_api_key(state: State<'_, AppState>, provider: ProviderId) -> Result<()> {
     let s = state.settings();
-    let llm = build_provider(Some(provider), &s)?;
+    let llm = build_provider(Some(provider), &s).await?;
     llm.test_key().await
 }
 

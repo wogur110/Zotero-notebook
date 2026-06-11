@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import type { Selection } from "../App";
 import type { Library } from "../types";
 import { buildTree, type CollectionNode } from "../lib/library";
@@ -39,14 +39,25 @@ export default function Sidebar({
   const [expanded, setExpanded] = useState<Set<string>>(
     () => new Set(tree.map((n) => n.collection.key)),
   );
+  const userToggled = useRef(false);
 
-  const toggle = (key: string) =>
+  // The library loads asynchronously after mount; until the user has
+  // interacted with the tree, keep root collections expanded by default.
+  useEffect(() => {
+    if (!userToggled.current) {
+      setExpanded(new Set(tree.map((n) => n.collection.key)));
+    }
+  }, [tree]);
+
+  const toggle = (key: string) => {
+    userToggled.current = true;
     setExpanded((prev) => {
       const next = new Set(prev);
       if (next.has(key)) next.delete(key);
       else next.add(key);
       return next;
     });
+  };
 
   return (
     <aside className="flex h-full w-[264px] shrink-0 flex-col border-r border-edge bg-surface">

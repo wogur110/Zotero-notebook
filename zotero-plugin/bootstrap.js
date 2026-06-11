@@ -85,7 +85,13 @@ function sqlDateToIso(sqlDate) {
   return sqlDate.replace(" ", "T") + "Z";
 }
 
-async function primaryPdfAttachment(item) {
+/**
+ * The item's primary PDF: the FIRST attachment with contentType
+ * application/pdf, regardless of link mode. This selection rule is part of
+ * the wire contract — /library serves it and /move-item must operate on the
+ * same attachment.
+ */
+function primaryPdfItem(item) {
   for (const attachmentID of item.getAttachments()) {
     let att;
     try {
@@ -93,24 +99,29 @@ async function primaryPdfAttachment(item) {
     } catch (e) {
       continue;
     }
-    if (!att || att.attachmentContentType !== "application/pdf") continue;
-    let filePath = null;
-    try {
-      const p = await att.getFilePathAsync();
-      filePath = p ? String(p) : null;
-    } catch (e) {
-      filePath = null;
-    }
-    return {
-      key: att.key,
-      title: getFieldOrNull(att, "title") || "PDF",
-      filename: att.attachmentFilename || null,
-      contentType: att.attachmentContentType || null,
-      linkMode: linkModeName(att),
-      filePath,
-    };
+    if (att && att.attachmentContentType === "application/pdf") return att;
   }
   return null;
+}
+
+async function primaryPdfPayload(item) {
+  const att = primaryPdfItem(item);
+  if (!att) return null;
+  let filePath = null;
+  try {
+    const p = await att.getFilePathAsync();
+    filePath = p ? String(p) : null;
+  } catch (e) {
+    filePath = null;
+  }
+  return {
+    key: att.key,
+    title: getFieldOrNull(att, "title") || "PDF",
+    filename: att.attachmentFilename || null,
+    contentType: att.attachmentContentType || null,
+    linkMode: linkModeName(att),
+    filePath,
+  };
 }
 
 async function itemPayload(item) {
@@ -153,7 +164,7 @@ async function itemPayload(item) {
     tags: item.getTags().map((t) => t.tag),
     dateAdded: sqlDateToIso(item.dateAdded),
     collectionKeys,
-    attachment: await primaryPdfAttachment(item),
+    attachment: await primaryPdfPayload(item),
   };
 }
 
@@ -185,9 +196,11 @@ async function buildLibraryPayload() {
 /**
  * Find or create the nested collection described by `targetPath`.
  * Existing names are matched case-insensitively so the LLM can never create
- * an "llm" next to an existing "LLM". Returns the leaf collection.
+ * an "llm" next to an existing "LLM". Newly created collections are pushed
+ * onto `createdOut` (in creation order) so failures later in the move can
+ * erase them again.
  */
-async function ensureCollectionPath(libraryID, targetPath) {
+async function ensureCollectionPath(libraryID, targetPath, createdOut) {
   let parent = null; // Zotero.Collection or null at root level
   for (const rawSegment of targetPath) {
     const segment = String(rawSegment).trim();
@@ -203,11 +216,24 @@ async function ensureCollectionPath(libraryID, targetPath) {
       next.name = segment;
       if (parent) next.parentKey = parent.key;
       await next.saveTx();
+      createdOut.push(next);
       debug("created collection '" + segment + "' (" + next.key + ")");
     }
     parent = next;
   }
   return parent;
+}
+
+/** Best-effort removal of collections created during a failed move. */
+async function eraseCreatedCollections(created) {
+  for (const col of created.slice().reverse()) {
+    try {
+      await col.eraseTx();
+      debug("rolled back created collection '" + col.name + "'");
+    } catch (e) {
+      debug("FAILED to erase created collection '" + col.name + "': " + e);
+    }
+  }
 }
 
 /**
@@ -216,7 +242,8 @@ async function ensureCollectionPath(libraryID, targetPath) {
  *   1. ensure the target collection path exists,
  *   2. update the item's collection memberships,
  *   3. optionally move the linked PDF on disk and update its path.
- * If 3 fails, 2 is reverted (and a half-done physical move is moved back).
+ * Any failure reverts the earlier steps (memberships, half-done file moves,
+ * and collections created in step 1) before the error response is sent.
  */
 async function moveItem(body) {
   if (!body || typeof body !== "object") {
@@ -244,10 +271,19 @@ async function moveItem(body) {
   }
 
   // --- step 1: target collection -----------------------------------
-  const target = await ensureCollectionPath(libraryID, targetPath);
+  const created = [];
+  let target;
+  try {
+    target = await ensureCollectionPath(libraryID, targetPath, created);
+  } catch (e) {
+    await eraseCreatedCollections(created);
+    return jsonError(500, "creating the target collection failed: " + (e.message || e));
+  }
 
   // --- step 2: memberships ------------------------------------------
-  const previousCollectionIDs = item.getCollections();
+  // includeTrashed=true: memberships in trashed collections must survive
+  // the round trip untouched (they are invisible to the app anyway).
+  const previousCollectionIDs = item.getCollections(true);
   const removeIDs = new Set();
   for (const key of removeKeys) {
     const col = Zotero.Collections.getByLibraryAndKey(libraryID, key);
@@ -259,8 +295,13 @@ async function moveItem(body) {
     // dedupe
     .filter((id, i, arr) => arr.indexOf(id) === i);
 
-  item.setCollections(newCollectionIDs);
-  await item.saveTx();
+  try {
+    item.setCollections(newCollectionIDs);
+    await item.saveTx();
+  } catch (e) {
+    await eraseCreatedCollections(created);
+    return jsonError(500, "updating collection memberships failed: " + (e.message || e));
+  }
 
   const revertMemberships = async () => {
     try {
@@ -272,44 +313,31 @@ async function moveItem(body) {
   };
 
   // --- step 3: optional physical file move --------------------------
+  // Operates on the SAME attachment /library serves as the primary PDF;
+  // files are only touched when that attachment is a linked file.
   let newFilePath = null;
   if (typeof fileRoot === "string" && fileRoot.trim()) {
-    const attachment = await (async () => {
-      for (const id of item.getAttachments()) {
-        const att = Zotero.Items.get(id);
-        if (
-          att &&
-          att.attachmentContentType === "application/pdf" &&
-          att.attachmentLinkMode === Zotero.Attachments.LINK_MODE_LINKED_FILE
-        ) {
-          return att;
-        }
-      }
-      return null;
-    })();
-
-    if (attachment) {
+    const attachment = primaryPdfItem(item);
+    if (
+      attachment &&
+      attachment.attachmentLinkMode === Zotero.Attachments.LINK_MODE_LINKED_FILE
+    ) {
+      let moved = false;
       let currentPath = null;
+      let destPath = null;
+      const previousAttachmentPath = attachment.attachmentPath;
       try {
         const p = await attachment.getFilePathAsync();
         currentPath = p ? String(p) : null;
-      } catch (e) {
-        currentPath = null;
-      }
 
-      if (currentPath) {
-        const segments = targetPath.map(sanitizeSegment);
-        const destDir = PathUtils.join(fileRoot.trim(), ...segments);
-        const destPath = PathUtils.join(destDir, PathUtils.filename(currentPath));
+        if (currentPath) {
+          const segments = targetPath.map(sanitizeSegment);
+          const destDir = PathUtils.join(fileRoot.trim(), ...segments);
+          destPath = PathUtils.join(destDir, PathUtils.filename(currentPath));
 
-        if (destPath !== currentPath) {
-          let moved = false;
-          const previousAttachmentPath = attachment.attachmentPath;
-          try {
+          if (destPath !== currentPath) {
             if (await IOUtils.exists(destPath)) {
-              throw new Error(
-                "a different file already exists at " + destPath
-              );
+              throw new Error("a different file already exists at " + destPath);
             }
             await Zotero.File.createDirectoryIfMissingAsync(destDir);
             await IOUtils.move(currentPath, destPath);
@@ -333,29 +361,29 @@ async function moveItem(body) {
             attachment.attachmentPath = storedPath;
             await attachment.saveTx();
             newFilePath = destPath;
-          } catch (e) {
-            // Roll everything back: file first, then memberships.
-            if (moved) {
-              try {
-                await IOUtils.move(destPath, currentPath);
-              } catch (moveBackErr) {
-                debug(
-                  "FAILED to move file back after error: " + moveBackErr
-                );
-              }
-              try {
-                attachment.attachmentPath = previousAttachmentPath;
-                await attachment.saveTx();
-              } catch (restoreErr) {
-                debug("FAILED to restore attachment path: " + restoreErr);
-              }
-            }
-            await revertMemberships();
-            return jsonError(500, "file move failed: " + (e.message || e));
+          } else {
+            newFilePath = currentPath;
           }
-        } else {
-          newFilePath = currentPath;
         }
+      } catch (e) {
+        // Roll everything back: file first, then memberships, then any
+        // collections this request created.
+        if (moved) {
+          try {
+            await IOUtils.move(destPath, currentPath);
+          } catch (moveBackErr) {
+            debug("FAILED to move file back after error: " + moveBackErr);
+          }
+          try {
+            attachment.attachmentPath = previousAttachmentPath;
+            await attachment.saveTx();
+          } catch (restoreErr) {
+            debug("FAILED to restore attachment path: " + restoreErr);
+          }
+        }
+        await revertMemberships();
+        await eraseCreatedCollections(created);
+        return jsonError(500, "file move failed: " + (e.message || e));
       }
     }
   }
@@ -370,13 +398,18 @@ async function moveItem(body) {
 // ---------------------------------------------------------------------
 // Endpoints
 // ---------------------------------------------------------------------
+// NOTE: Zotero's server dispatches on the DECLARED ARITY of init:
+// `init.length === 1` selects the modern requestData/return-tuple style;
+// any other arity falls into legacy callback branches where the returned
+// tuple is silently discarded and the HTTP request hangs forever. Every
+// init below must declare exactly one parameter, even when unused.
 
 function makePingEndpoint() {
   const Endpoint = function () {};
   Endpoint.prototype = {
     supportedMethods: ["GET"],
     permitBookmarklet: false,
-    init: function () {
+    init: function (_requestData) {
       return jsonResponse(200, {
         version: ZoteroNotebook.version,
         zoteroVersion: Zotero.version,
@@ -391,7 +424,7 @@ function makeLibraryEndpoint() {
   Endpoint.prototype = {
     supportedMethods: ["GET"],
     permitBookmarklet: false,
-    init: async function () {
+    init: async function (_requestData) {
       try {
         const payload = await buildLibraryPayload();
         return jsonResponse(200, payload);

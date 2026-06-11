@@ -69,6 +69,18 @@ export default function App() {
     };
   }, [refreshStatus, refreshLibrary]);
 
+  // A refresh can remove the selected collection (deleted in Zotero) or the
+  // open item — fall back instead of rendering a stale/empty view.
+  useEffect(() => {
+    if (
+      selection.kind === "collection" &&
+      library.items.length + library.collections.length > 0 &&
+      !library.collections.some((c) => c.key === selection.key)
+    ) {
+      setSelection({ kind: "all" });
+    }
+  }, [library, selection]);
+
   // Global shortcuts: Ctrl/Cmd+K search, Esc closes overlays.
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -164,6 +176,7 @@ export default function App() {
 
       {openItem && (
         <ItemDetailModal
+          key={openItem.key} // remount per item: no stale summary/error state
           item={openItem}
           library={library}
           defaultProvider={settings?.defaultProvider ?? "gemini"}

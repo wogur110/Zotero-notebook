@@ -96,19 +96,47 @@ fn fetch_str(v: &serde_json::Value, field: &str) -> Option<String> {
         .map(String::from)
 }
 
+/// First standalone 4-digit run that looks like a year. Operates on bytes
+/// (never slices the &str) so multi-byte dates like "März 2021" are safe,
+/// and requires non-digit boundaries so "12342" yields no year.
 fn year_from_date(date: &str) -> Option<i32> {
-    let bytes = date.as_bytes();
-    for i in 0..bytes.len().saturating_sub(3) {
-        let window = &date[i..i + 4];
-        if window.chars().all(|c| c.is_ascii_digit()) {
-            if let Ok(y) = window.parse::<i32>() {
-                if (1000..=2999).contains(&y) {
-                    return Some(y);
-                }
-            }
+    let b = date.as_bytes();
+    for i in 0..b.len().saturating_sub(3) {
+        let window = &b[i..i + 4];
+        if !window.iter().all(u8::is_ascii_digit) {
+            continue;
+        }
+        let before_digit = i > 0 && b[i - 1].is_ascii_digit();
+        let after_digit = i + 4 < b.len() && b[i + 4].is_ascii_digit();
+        if before_digit || after_digit {
+            continue;
+        }
+        // ASCII digits are always valid UTF-8.
+        let y: i32 = std::str::from_utf8(window).ok()?.parse().ok()?;
+        if (1000..=2999).contains(&y) {
+            return Some(y);
         }
     }
     None
+}
+
+#[cfg(test)]
+mod tests {
+    use super::year_from_date;
+
+    #[test]
+    fn year_parsing_is_utf8_safe_and_bounded() {
+        assert_eq!(year_from_date("2021-05-01"), Some(2021));
+        assert_eq!(year_from_date("March 2019"), Some(2019));
+        // Multi-byte month names must not panic (regression: byte slicing).
+        assert_eq!(year_from_date("M\u{e4}rz 2021"), Some(2021));
+        assert_eq!(year_from_date("f\u{e9}vrier 2021"), Some(2021));
+        assert_eq!(year_from_date("2021\u{5e74}3\u{6708}"), Some(2021));
+        // A 4-digit window inside a longer number is not a year.
+        assert_eq!(year_from_date("12342"), None);
+        assert_eq!(year_from_date("no year here"), None);
+        assert_eq!(year_from_date("0123"), None);
+    }
 }
 
 async fn get_paginated<T: serde::de::DeserializeOwned>(

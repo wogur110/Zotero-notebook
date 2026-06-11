@@ -57,6 +57,9 @@ export default function UnclassifiedView({
   const [results, setResults] = useState<MoveResult[]>([]);
   const [fatal, setFatal] = useState<string | null>(null);
   const unlistenRef = useRef<(() => void)[]>([]);
+  // Backend runs are not cancellable; a run id keeps events/results from an
+  // abandoned run out of a newer one.
+  const runIdRef = useRef(0);
 
   useEffect(
     () => () => {
@@ -70,12 +73,14 @@ export default function UnclassifiedView({
     library.items.find((i) => i.key === key)?.title ?? key;
 
   const startClassify = async () => {
+    const runId = ++runIdRef.current;
     setPhase("classifying");
     setFatal(null);
     setFailures([]);
     setProgress({ done: 0, total: items.length, itemKey: null, state: "running", message: null });
     const errors: FailedRow[] = [];
     const un = await api.onClassifyProgress((p) => {
+      if (runIdRef.current !== runId) return; // event from an abandoned run
       setProgress(p);
       if (p.state === "error" && p.itemKey) {
         errors.push({ itemKey: p.itemKey, message: p.message ?? "failed" });
@@ -87,6 +92,7 @@ export default function UnclassifiedView({
         items.map((i) => i.key),
         defaultProvider,
       );
+      if (runIdRef.current !== runId) return; // a newer run took over
       setRows(
         proposals.map((p) => ({
           proposal: p,
@@ -98,8 +104,10 @@ export default function UnclassifiedView({
       setFailures(errors);
       setPhase("review");
     } catch (e) {
-      setFatal(api.errorMessage(e));
-      setPhase("idle");
+      if (runIdRef.current === runId) {
+        setFatal(api.errorMessage(e));
+        setPhase("idle");
+      }
     } finally {
       un();
       unlistenRef.current = unlistenRef.current.filter((f) => f !== un);
@@ -109,19 +117,25 @@ export default function UnclassifiedView({
   const startApply = async () => {
     const selected = rows.filter((r) => r.checked);
     if (selected.length === 0) return;
+    const runId = ++runIdRef.current;
     setPhase("applying");
     setProgress({ done: 0, total: selected.length, itemKey: null, state: "running", message: null });
-    const un = await api.onApplyProgress(setProgress);
+    const un = await api.onApplyProgress((p) => {
+      if (runIdRef.current === runId) setProgress(p);
+    });
     unlistenRef.current.push(un);
     try {
       const res = await api.applyClassifications(
         selected.map((r) => ({ itemKey: r.proposal.itemKey, targetPath: r.path })),
       );
+      if (runIdRef.current !== runId) return;
       setResults(res);
       setPhase("done");
     } catch (e) {
-      setFatal(api.errorMessage(e));
-      setPhase("review");
+      if (runIdRef.current === runId) {
+        setFatal(api.errorMessage(e));
+        setPhase("review");
+      }
     } finally {
       un();
       unlistenRef.current = unlistenRef.current.filter((f) => f !== un);

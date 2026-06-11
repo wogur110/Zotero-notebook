@@ -144,7 +144,10 @@ observed by the caller):**
 `newFilePath` is `null` when no file move was requested/possible.
 
 **Error response** — non-200 with `{"error": "..."}`; the plugin must leave
-the library unchanged.
+the library unchanged: memberships are reverted, a half-completed physical
+move is moved back, and collections created earlier in the same request are
+erased again (best-effort — a failure during cleanup is logged via
+`Zotero.debug`).
 
 ---
 
@@ -152,4 +155,6 @@ the library unchanged.
 
 Breaking changes to this contract bump the minor version reported by
 `/ping`. The app refuses to write when the plugin major.minor is older than
-what it expects, and shows an "update the plugin" banner instead.
+`EXPECTED_PLUGIN_VERSION` (`core/src/zotero/plugin_api.rs`) and surfaces an
+"update the plugin" error instead — keep that constant in sync with
+`zotero-plugin/manifest.json` when bumping.
