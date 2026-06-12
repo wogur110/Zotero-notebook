@@ -3,7 +3,7 @@
     "zotero-notebook@wogur110.github.io": {
       "updates": [
         {
-          "version": "1.2.0",
+          "version": "1.2.5",
           "update_link": "https://github.com/wogur110/Zotero-notebook/releases/latest/download/zotero-notebook.xpi",
           "applications": {
             "zotero": {
