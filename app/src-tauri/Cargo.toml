@@ -1,6 +1,6 @@
 [package]
 name = "zotero-notebook"
-version = "1.1.0"
+version = "1.2.0"
 description = "Zotero Notebook — your Zotero library with AI summaries and automatic classification"
 authors = ["Jaehyeok"]
 edition = "2021"
