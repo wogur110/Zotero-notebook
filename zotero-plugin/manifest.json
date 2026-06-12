@@ -1,12 +1,13 @@
 {
   "manifest_version": 2,
   "name": "Zotero Notebook Connector",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Local HTTP endpoints used by the Zotero Notebook desktop app: read the library and perform transactional collection/file moves.",
   "homepage_url": "https://github.com/wogur110/Zotero-notebook",
   "applications": {
     "zotero": {
       "id": "zotero-notebook@wogur110.github.io",
+      "update_url": "https://raw.githubusercontent.com/wogur110/Zotero-notebook/main/zotero-plugin/updates.json",
       "strict_min_version": "6.999",
       "strict_max_version": "9.*"
     }
