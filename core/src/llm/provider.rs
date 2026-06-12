@@ -30,6 +30,10 @@ pub struct SummarizeRequest {
     pub year: Option<i32>,
     pub publication: Option<String>,
     pub abstract_text: Option<String>,
+    /// Extracted PDF text (possibly truncated). Only set for the explicit
+    /// "full-text summary" action — the default summary stays cheap.
+    #[serde(default)]
+    pub body_excerpt: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -153,20 +157,63 @@ fn meta_block(
 }
 
 pub fn summarize_prompt(req: &SummarizeRequest) -> String {
+    let meta = meta_block(
+        &req.title,
+        &req.creators,
+        req.year,
+        req.publication.as_deref(),
+        req.abstract_text.as_deref(),
+    );
+    match req.body_excerpt.as_deref().filter(|b| !b.trim().is_empty()) {
+        Some(body) => format!(
+            "You are helping a researcher maintain notes on academic papers.\n\
+             Write a summary of the following paper in English, 5 to 8 sentences,\n\
+             as a single plain-text paragraph (no markdown, no headings, no lists).\n\
+             Cover: the problem addressed, the key idea or method, the main\n\
+             experimental results (with concrete numbers when the text provides\n\
+             them), and the significance or limitations. Base the summary on the\n\
+             metadata and the full-text excerpt below; do not invent anything\n\
+             that is not present.\n\n{meta}\n\
+             Full text (may be truncated):\n\"\"\"\n{body}\n\"\"\"\n"
+        ),
+        None => format!(
+            "You are helping a researcher maintain notes on academic papers.\n\
+             Write a summary of the following paper in English, 5 to 8 sentences,\n\
+             as a single plain-text paragraph (no markdown, no headings, no lists).\n\
+             Cover: the problem addressed, the key idea or method, and the main\n\
+             results or significance. Base the summary only on the metadata below;\n\
+             do not invent specific numbers that are not present.\n\n{meta}"
+        ),
+    }
+}
+
+/// System prompt for the per-paper "Ask AI" chat. Answers are ALWAYS in
+/// English (user decision), grounded in the provided material.
+pub fn chat_system_prompt(
+    title: &str,
+    creators: &[String],
+    year: Option<i32>,
+    publication: Option<&str>,
+    abstract_text: Option<&str>,
+    body_excerpt: Option<&str>,
+) -> String {
+    let meta = meta_block(title, creators, year, publication, abstract_text);
+    let body = match body_excerpt.filter(|b| !b.trim().is_empty()) {
+        Some(b) => format!("Full text (may be truncated):\n\"\"\"\n{b}\n\"\"\"\n"),
+        None => "Full text: (not available — answer from the metadata above and say so \
+                 when a question needs the body of the paper)\n"
+            .to_string(),
+    };
     format!(
-        "You are helping a researcher maintain notes on academic papers.\n\
-         Write a summary of the following paper in English, 5 to 8 sentences,\n\
-         as a single plain-text paragraph (no markdown, no headings, no lists).\n\
-         Cover: the problem addressed, the key idea or method, and the main\n\
-         results or significance. Base the summary only on the metadata below;\n\
-         do not invent specific numbers that are not present.\n\n{}",
-        meta_block(
-            &req.title,
-            &req.creators,
-            req.year,
-            req.publication.as_deref(),
-            req.abstract_text.as_deref(),
-        )
+        "You are helping a researcher understand one specific academic paper.\n\
+         Answer questions about it using the material below.\n\n\
+         Rules:\n\
+         - Always answer in English, regardless of the language of the question.\n\
+         - Ground every claim in the provided text; when the answer is not in\n\
+           the material, say so plainly instead of guessing.\n\
+         - Be concise: short paragraphs, no headings or bullet lists unless\n\
+           the user asks for them.\n\n\
+         {meta}\n{body}"
     )
 }
 
@@ -296,6 +343,20 @@ impl AnyProvider {
         match self {
             AnyProvider::Gemini(c) => c.audit(req).await,
             AnyProvider::Anthropic(c) => c.audit(req).await,
+        }
+    }
+
+    /// Streamed chat about one paper. `on_delta` is invoked with each text
+    /// fragment as it arrives; the full answer is returned at the end.
+    pub async fn chat_stream<F: FnMut(&str)>(
+        &self,
+        system: &str,
+        messages: &[crate::models::ChatMessage],
+        on_delta: &mut F,
+    ) -> Result<String> {
+        match self {
+            AnyProvider::Gemini(c) => c.chat_stream(system, messages, on_delta).await,
+            AnyProvider::Anthropic(c) => c.chat_stream(system, messages, on_delta).await,
         }
     }
 }

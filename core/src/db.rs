@@ -6,7 +6,7 @@ use std::path::Path;
 use rusqlite::{Connection, OptionalExtension};
 
 use crate::error::Result;
-use crate::models::StoredSummary;
+use crate::models::{StoredSummary, SummarySource};
 
 pub struct Db {
     conn: Connection,
@@ -19,14 +19,17 @@ CREATE TABLE IF NOT EXISTS summaries (
     provider     TEXT NOT NULL,
     model        TEXT NOT NULL,
     created_at   TEXT NOT NULL,
-    had_abstract INTEGER NOT NULL DEFAULT 1
+    had_abstract INTEGER NOT NULL DEFAULT 1,
+    source       TEXT NOT NULL DEFAULT ''
 );
 ";
 
 /// Columns added after 1.0.0. Each ALTER fails harmlessly with "duplicate
 /// column name" when the column already exists.
-const COLUMN_MIGRATIONS: &[&str] =
-    &["ALTER TABLE summaries ADD COLUMN had_abstract INTEGER NOT NULL DEFAULT 1"];
+const COLUMN_MIGRATIONS: &[&str] = &[
+    "ALTER TABLE summaries ADD COLUMN had_abstract INTEGER NOT NULL DEFAULT 1",
+    "ALTER TABLE summaries ADD COLUMN source TEXT NOT NULL DEFAULT ''",
+];
 
 fn migrate(conn: &Connection) -> Result<()> {
     conn.execute_batch(MIGRATION)?;
@@ -62,17 +65,26 @@ impl Db {
         let row = self
             .conn
             .query_row(
-                "SELECT item_key, summary, provider, model, created_at, had_abstract
+                "SELECT item_key, summary, provider, model, created_at, had_abstract, source
                  FROM summaries WHERE item_key = ?1",
                 [item_key],
                 |r| {
+                    // `source` arrived in 1.2.0; older rows fall back to the
+                    // 1.1.0 had_abstract flag.
+                    let source_raw: String = r.get(6)?;
+                    let had_abstract: bool = r.get(5)?;
+                    let source = SummarySource::parse(&source_raw).unwrap_or(if had_abstract {
+                        SummarySource::Abstract
+                    } else {
+                        SummarySource::Metadata
+                    });
                     Ok(StoredSummary {
                         item_key: r.get(0)?,
                         summary: r.get(1)?,
                         provider: r.get(2)?,
                         model: r.get(3)?,
                         created_at: r.get(4)?,
-                        had_abstract: r.get(5)?,
+                        source,
                     })
                 },
             )
@@ -82,21 +94,23 @@ impl Db {
 
     pub fn upsert_summary(&self, s: &StoredSummary) -> Result<()> {
         self.conn.execute(
-            "INSERT INTO summaries (item_key, summary, provider, model, created_at, had_abstract)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6)
+            "INSERT INTO summaries (item_key, summary, provider, model, created_at, had_abstract, source)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)
              ON CONFLICT(item_key) DO UPDATE SET
                summary = excluded.summary,
                provider = excluded.provider,
                model = excluded.model,
                created_at = excluded.created_at,
-               had_abstract = excluded.had_abstract",
+               had_abstract = excluded.had_abstract,
+               source = excluded.source",
             (
                 &s.item_key,
                 &s.summary,
                 &s.provider,
                 &s.model,
                 &s.created_at,
-                s.had_abstract,
+                s.source != SummarySource::Metadata, // legacy column kept coherent
+                s.source.as_str(),
             ),
         )?;
         Ok(())

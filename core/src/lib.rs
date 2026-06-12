@@ -25,6 +25,7 @@ pub mod llm {
     pub mod anthropic;
     pub mod gemini;
     pub mod provider;
+    pub mod sse;
     pub use provider::{AnyProvider, ClassifyRequest, ClassifyResponse, SummarizeRequest};
 }
 

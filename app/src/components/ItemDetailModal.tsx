@@ -3,6 +3,7 @@ import { openUrl } from "@tauri-apps/plugin-opener";
 import * as api from "../api";
 import type { Item, Library, ProviderId, StoredSummary } from "../types";
 import { collectionPath, formatAuthors, pathLabel } from "../lib/library";
+import ChatPanel from "./ChatPanel";
 import {
   IconAlert,
   IconExternalLink,
@@ -20,12 +21,16 @@ interface Props {
   onClose: () => void;
 }
 
+type Tab = "overview" | "chat";
+
 export default function ItemDetailModal({
   item,
   library,
   defaultProvider,
   onClose,
 }: Props) {
+  const [tab, setTab] = useState<Tab>("overview");
+
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.key === "Escape") onClose();
@@ -46,7 +51,7 @@ export default function ItemDetailModal({
         role="dialog"
         aria-modal="true"
         aria-label={item.title}
-        className="card flex max-h-[84vh] w-[680px] max-w-[92vw] flex-col bg-surface"
+        className="card flex h-[84vh] w-[680px] max-w-[92vw] flex-col bg-surface"
         style={{ boxShadow: "var(--shadow-pop)" }}
       >
         <div className="flex items-center gap-2 px-6 pt-5">
@@ -71,23 +76,67 @@ export default function ItemDetailModal({
           </p>
         </div>
 
-        <div className="min-h-0 flex-1 space-y-5 overflow-y-auto px-6 pb-6 pt-4">
-          <MetadataGrid item={item} library={library} />
-          <FileRow item={item} />
-          <SummarySection item={item} defaultProvider={defaultProvider} />
-          {item.abstractText && (
-            <section>
-              <h3 className="mb-1.5 text-[11px] font-semibold uppercase tracking-wider text-faint">
-                Abstract
-              </h3>
-              <p className="text-sm leading-relaxed text-muted">
-                {item.abstractText}
-              </p>
-            </section>
-          )}
+        <div
+          className="mt-3 flex gap-1 border-b border-edge px-6"
+          role="tablist"
+        >
+          <TabButton
+            active={tab === "overview"}
+            onClick={() => setTab("overview")}
+          >
+            Overview
+          </TabButton>
+          <TabButton active={tab === "chat"} onClick={() => setTab("chat")}>
+            <IconSparkles size={13} /> Ask AI
+          </TabButton>
         </div>
+
+        {tab === "overview" ? (
+          <div className="min-h-0 flex-1 space-y-5 overflow-y-auto px-6 pb-6 pt-4">
+            <MetadataGrid item={item} library={library} />
+            <FileRow item={item} />
+            <SummarySection item={item} defaultProvider={defaultProvider} />
+            {item.abstractText && (
+              <section>
+                <h3 className="mb-1.5 text-[11px] font-semibold uppercase tracking-wider text-faint">
+                  Abstract
+                </h3>
+                <p className="text-sm leading-relaxed text-muted">
+                  {item.abstractText}
+                </p>
+              </section>
+            )}
+          </div>
+        ) : (
+          <ChatPanel item={item} defaultProvider={defaultProvider} />
+        )}
       </div>
     </div>
+  );
+}
+
+function TabButton({
+  active,
+  onClick,
+  children,
+}: {
+  active: boolean;
+  onClick: () => void;
+  children: React.ReactNode;
+}) {
+  return (
+    <button
+      role="tab"
+      aria-selected={active}
+      onClick={onClick}
+      className={`-mb-px inline-flex items-center gap-1.5 border-b-2 px-3 py-2 text-sm font-medium transition-colors ${
+        active
+          ? "border-accent text-accent"
+          : "border-transparent text-muted hover:text-text"
+      }`}
+    >
+      {children}
+    </button>
   );
 }
 
@@ -263,17 +312,23 @@ function SummarySection({
     };
   }, [item.key]);
 
-  const generate = useCallback(async () => {
-    setGenerating(true);
-    setError(null);
-    try {
-      setSummary(await api.summarizeItem(item.key, defaultProvider));
-    } catch (e) {
-      setError(api.errorMessage(e));
-    } finally {
-      setGenerating(false);
-    }
-  }, [item.key, defaultProvider]);
+  const generate = useCallback(
+    async (useFulltext: boolean) => {
+      setGenerating(true);
+      setError(null);
+      try {
+        setSummary(await api.summarizeItem(item.key, defaultProvider, useFulltext));
+      } catch (e) {
+        setError(api.errorMessage(e));
+      } finally {
+        setGenerating(false);
+      }
+    },
+    [item.key, defaultProvider],
+  );
+
+  const fulltextTooltip =
+    "Reads the whole PDF (up to ~80k characters) — better summary, but a noticeably larger AI request than the default.";
 
   return (
     <section className="rounded-lg border border-edge bg-raised p-4">
@@ -284,9 +339,21 @@ function SummarySection({
         <h3 className="text-sm font-semibold">AI Summary</h3>
         <div className="flex-1" />
         {summary && !generating && (
-          <button className="btn-ghost py-0.5! text-xs" onClick={generate}>
-            Regenerate
-          </button>
+          <>
+            <button
+              className="btn-ghost py-0.5! text-xs"
+              onClick={() => void generate(false)}
+            >
+              Regenerate
+            </button>
+            <button
+              className="btn-ghost py-0.5! text-xs"
+              title={fulltextTooltip}
+              onClick={() => void generate(true)}
+            >
+              <IconFileText size={12} /> From full text
+            </button>
+          </>
         )}
       </div>
 
@@ -304,7 +371,15 @@ function SummarySection({
               {summary.provider} · {summary.model} ·{" "}
               {new Date(summary.createdAt).toLocaleString()}
             </span>
-            {!summary.hadAbstract && (
+            {summary.source === "fulltext" && (
+              <span
+                className="badge bg-info-soft text-info"
+                title="This summary was generated from the paper's extracted full text."
+              >
+                <IconFileText size={11} /> Full text
+              </span>
+            )}
+            {summary.source === "metadata" && (
               <span
                 className="badge bg-warn-soft text-warn"
                 title="No abstract was available in Zotero or from Crossref/Semantic Scholar/OpenAlex, so this summary is based on the title and venue only. Treat specifics with caution."
@@ -317,24 +392,34 @@ function SummarySection({
       ) : (
         <div className="flex flex-col items-start gap-2.5">
           <p className="text-sm text-muted">
-            No summary yet. Generate one from the paper's metadata and
-            abstract.
+            No summary yet. The default uses the metadata and abstract; the
+            full-text option reads the whole PDF for a deeper summary.
           </p>
-          <button
-            className="btn-primary"
-            onClick={generate}
-            disabled={generating}
-          >
-            {generating ? (
-              <>
-                <IconLoader size={14} /> Summarizing…
-              </>
-            ) : (
-              <>
-                <IconSparkles size={14} /> Generate summary
-              </>
-            )}
-          </button>
+          <div className="flex gap-2">
+            <button
+              className="btn-primary"
+              onClick={() => void generate(false)}
+              disabled={generating}
+            >
+              {generating ? (
+                <>
+                  <IconLoader size={14} /> Summarizing…
+                </>
+              ) : (
+                <>
+                  <IconSparkles size={14} /> Generate summary
+                </>
+              )}
+            </button>
+            <button
+              className="btn-secondary"
+              onClick={() => void generate(true)}
+              disabled={generating}
+              title={fulltextTooltip}
+            >
+              <IconFileText size={14} /> Full-text summary
+            </button>
+          </div>
         </div>
       )}
       {generating && summary && (

@@ -51,6 +51,24 @@ struct ErrorBody {
     error: String,
 }
 
+/// Extracted PDF text served by `/zotero-notebook/fulltext`.
+#[derive(Debug, Clone, Deserialize, PartialEq)]
+pub struct Fulltext {
+    pub text: String,
+    /// Total extracted length before truncation.
+    pub chars: usize,
+    pub truncated: bool,
+}
+
+#[derive(Deserialize)]
+struct FulltextResponse {
+    text: Option<String>,
+    #[serde(default)]
+    truncated: bool,
+    #[serde(default)]
+    chars: usize,
+}
+
 impl PluginClient {
     pub fn new(base_url: impl Into<String>) -> Self {
         let base_url = base_url.into().trim_end_matches('/').to_string();
@@ -117,6 +135,49 @@ impl PluginClient {
             .map_err(|e| Error::InvalidResponse(format!("library payload: {e}")))?;
         library.writable = true;
         Ok(library)
+    }
+
+    /// The extracted text of the item's primary PDF, from Zotero's own
+    /// full-text cache. `Ok(None)` covers every benign "no text" case —
+    /// plugin too old for the route, no PDF, scanned PDF without OCR — so
+    /// callers can treat full text as strictly optional.
+    pub async fn fetch_fulltext(
+        &self,
+        item_key: &str,
+        max_chars: usize,
+    ) -> Result<Option<Fulltext>> {
+        let url = format!(
+            "{}/zotero-notebook/fulltext?itemKey={}&maxChars={}",
+            self.base_url,
+            urlencoding::encode(item_key),
+            max_chars
+        );
+        let resp = self
+            .http
+            .get(&url)
+            .send()
+            .await
+            .map_err(|e| self.offline(e))?;
+        let status = resp.status();
+        let text = resp.text().await.map_err(Error::Http)?;
+        if !status.is_success() {
+            // A plugin without this route (pre-1.2) answers 404 with a
+            // non-JSON body; treat as "no full text" rather than an error.
+            return match self.classify_error(status.as_u16(), &text) {
+                Error::PluginMissing => Ok(None),
+                e => Err(e),
+            };
+        }
+        let parsed: FulltextResponse = serde_json::from_str(&text)
+            .map_err(|e| Error::InvalidResponse(format!("fulltext payload: {e}")))?;
+        Ok(parsed
+            .text
+            .filter(|t| !t.trim().is_empty())
+            .map(|t| Fulltext {
+                text: t,
+                chars: parsed.chars,
+                truncated: parsed.truncated,
+            }))
     }
 
     pub async fn move_item(

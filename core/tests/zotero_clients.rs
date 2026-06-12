@@ -86,6 +86,54 @@ async fn plugin_library_parses_contract_example() {
 }
 
 #[tokio::test]
+async fn plugin_fulltext_happy_path() {
+    let server = MockServer::start().await;
+    Mock::given(method("GET"))
+        .and(path("/zotero-notebook/fulltext"))
+        .and(query_param("itemKey", "ITEM0001"))
+        .and(query_param("maxChars", "80000"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "text": "We present DDPM...",
+            "indexed": true,
+            "truncated": true,
+            "chars": 123456
+        })))
+        .mount(&server)
+        .await;
+
+    let client = PluginClient::new(server.uri());
+    let ft = client.fetch_fulltext("ITEM0001", 80000).await.unwrap().unwrap();
+    assert_eq!(ft.text, "We present DDPM...");
+    assert!(ft.truncated);
+    assert_eq!(ft.chars, 123456);
+}
+
+#[tokio::test]
+async fn plugin_fulltext_absent_cases_are_none() {
+    let server = MockServer::start().await;
+    // No text extracted (e.g. scanned PDF).
+    Mock::given(method("GET"))
+        .and(path("/zotero-notebook/fulltext"))
+        .and(query_param("itemKey", "NOTEXT01"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "text": null, "indexed": false, "truncated": false, "chars": 0
+        })))
+        .mount(&server)
+        .await;
+    // Old plugin without the route: Zotero's own non-JSON 404.
+    Mock::given(method("GET"))
+        .and(path("/zotero-notebook/fulltext"))
+        .and(query_param("itemKey", "OLDPLUG1"))
+        .respond_with(ResponseTemplate::new(404).set_body_string("Not Found"))
+        .mount(&server)
+        .await;
+
+    let client = PluginClient::new(server.uri());
+    assert!(client.fetch_fulltext("NOTEXT01", 80000).await.unwrap().is_none());
+    assert!(client.fetch_fulltext("OLDPLUG1", 80000).await.unwrap().is_none());
+}
+
+#[tokio::test]
 async fn plugin_move_item_sends_contract_body_and_parses_result() {
     let server = MockServer::start().await;
     Mock::given(method("POST"))

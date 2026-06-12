@@ -29,9 +29,13 @@ failure.
 - **Zotero metadata for every PDF** — authors, venue, year, DOI, tags,
   abstract, collections, and the resolved file path on disk.
 - **AI summaries with Gemini *and* Claude** — one click in the paper popup;
-  stored locally in SQLite and keyed to the Zotero item. Models are
-  configurable (defaults: `gemini-2.5-pro`, `claude-opus-4-8`); keys live in
-  the OS keychain.
+  stored locally in SQLite and keyed to the Zotero item. The default summary
+  uses metadata + abstract (cheap); a separate **Full-text summary** button
+  reads the whole PDF (via Zotero's extracted text) for a deeper summary.
+  Models are configurable (defaults: `gemini-2.5-pro`, `claude-opus-4-8`);
+  keys live in the OS keychain.
+- **Ask AI about a paper** — a chat tab in the paper popup, grounded in the
+  PDF's extracted full text, with streaming answers (always in English).
 - **Fast search** — `Ctrl/Cmd+K` fuzzy search across titles, authors, tags,
   venues, and abstracts.
 - **Paper popup** — full metadata, AI summary, **Open PDF**, **Show in

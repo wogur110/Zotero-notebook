@@ -88,17 +88,26 @@ export interface MoveResult {
   newFilePath: string | null;
 }
 
+/** What the summarization prompt was based on. */
+export type SummarySource = "fulltext" | "abstract" | "metadata";
+
 export interface StoredSummary {
   itemKey: string;
   summary: string;
   provider: string;
   model: string;
   createdAt: string;
-  /**
-   * Whether the prompt included an abstract (from Zotero or fetched from
-   * Crossref/Semantic Scholar/OpenAlex). False = title/venue only.
-   */
-  hadAbstract: boolean;
+  source: SummarySource;
+}
+
+export interface ChatMessage {
+  role: "user" | "assistant";
+  content: string;
+}
+
+export interface ChatDelta {
+  itemKey: string;
+  delta: string;
 }
 
 export interface AppSettings {

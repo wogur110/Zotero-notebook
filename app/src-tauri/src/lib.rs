@@ -11,11 +11,16 @@ use tauri::{AppHandle, Emitter, Manager, State};
 use zn_core::llm::{AnyProvider, SummarizeRequest};
 use zn_core::llm::provider::{ANTHROPIC_BASE_URL, GEMINI_BASE_URL};
 use zn_core::models::{
-    AppSettings, AuditProposal, ClassificationDecision, ClassificationProposal, Item, Library,
-    MoveResult, ProgressEvent, ProviderId, StoredSummary, ZoteroStatus, UNCLASSIFIED_COLLECTION,
+    AppSettings, AuditProposal, ChatDelta, ChatMessage, ClassificationDecision,
+    ClassificationProposal, Item, Library, MoveResult, ProgressEvent, ProviderId, StoredSummary,
+    SummarySource, ZoteroStatus, UNCLASSIFIED_COLLECTION,
 };
 use zn_core::zotero::{local_api, plugin_api};
 use zn_core::{classify, db, keychain, settings, Error, Result};
+
+/// Cap on how much extracted PDF text is sent to an LLM (full-text summary
+/// and chat). ~80k chars ≈ 20k tokens.
+const BODY_MAX_CHARS: usize = 80_000;
 
 struct AppState {
     db: Mutex<db::Db>,
@@ -132,23 +137,54 @@ fn get_summary(state: State<'_, AppState>, item_key: String) -> Result<Option<St
     db.get_summary(&item_key)
 }
 
+/// Fetch the paper's extracted text through the plugin (best-effort).
+async fn fetch_body_excerpt(s: &AppSettings, item_key: &str) -> Option<String> {
+    let client = plugin_api::PluginClient::new(&s.zotero_base_url);
+    match client.fetch_fulltext(item_key, BODY_MAX_CHARS).await {
+        Ok(Some(ft)) => Some(ft.text),
+        Ok(None) => None,
+        Err(e) => {
+            log::warn!("fulltext fetch for {item_key} failed: {e}");
+            None
+        }
+    }
+}
+
 #[tauri::command]
 async fn summarize_item(
     state: State<'_, AppState>,
     item_key: String,
     provider: Option<ProviderId>,
+    use_fulltext: Option<bool>,
 ) -> Result<StoredSummary> {
     let s = state.settings();
     let library = fetch_library_any(&s).await?;
     let mut item = find_item(&library, &item_key)?;
     let llm = build_provider(provider, &s).await?;
-    let had_abstract = ensure_abstract(&mut item).await;
+
+    // The cheap metadata+abstract summary is the default; reading the whole
+    // PDF is an explicit, separate action (it costs real tokens).
+    let body_excerpt = if use_fulltext.unwrap_or(false) {
+        fetch_body_excerpt(&s, &item_key).await
+    } else {
+        None
+    };
+    let has_abstract = ensure_abstract(&mut item).await;
+    let source = if body_excerpt.is_some() {
+        SummarySource::Fulltext
+    } else if has_abstract {
+        SummarySource::Abstract
+    } else {
+        SummarySource::Metadata
+    };
+
     let req = SummarizeRequest {
         title: item.title.clone(),
         creators: item.creators.clone(),
         year: item.year,
         publication: item.publication.clone(),
         abstract_text: item.abstract_text.clone(),
+        body_excerpt,
     };
     let text = llm.summarize(&req).await?;
     let model = match llm.id() {
@@ -161,13 +197,57 @@ async fn summarize_item(
         provider: llm.id().as_str().to_string(),
         model,
         created_at: chrono::Utc::now().to_rfc3339(),
-        had_abstract,
+        source,
     };
     {
         let db = state.db.lock().expect("db mutex");
         db.upsert_summary(&summary)?;
     }
     Ok(summary)
+}
+
+/// One turn of the per-paper "Ask AI" chat. `history` must end with the
+/// user's newest question. Streams text fragments as `chat-delta` events
+/// and resolves with the complete answer.
+#[tauri::command]
+async fn chat_with_item(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    item_key: String,
+    history: Vec<ChatMessage>,
+    provider: Option<ProviderId>,
+) -> Result<String> {
+    if history.is_empty() {
+        return Err(Error::Other("the conversation is empty".into()));
+    }
+    let s = state.settings();
+    let library = fetch_library_any(&s).await?;
+    let mut item = find_item(&library, &item_key)?;
+    let llm = build_provider(provider, &s).await?;
+
+    let body_excerpt = fetch_body_excerpt(&s, &item_key).await;
+    ensure_abstract(&mut item).await;
+    let system = zn_core::llm::provider::chat_system_prompt(
+        &item.title,
+        &item.creators,
+        item.year,
+        item.publication.as_deref(),
+        item.abstract_text.as_deref(),
+        body_excerpt.as_deref(),
+    );
+
+    let mut on_delta = |t: &str| {
+        if let Err(e) = app.emit(
+            "chat-delta",
+            &ChatDelta {
+                item_key: item_key.clone(),
+                delta: t.to_string(),
+            },
+        ) {
+            log::warn!("failed to emit chat-delta: {e}");
+        }
+    };
+    llm.chat_stream(&system, &history, &mut on_delta).await
 }
 
 #[tauri::command]
@@ -547,6 +627,7 @@ pub fn run() {
             get_library,
             get_summary,
             summarize_item,
+            chat_with_item,
             classify_items,
             audit_items,
             apply_classifications,

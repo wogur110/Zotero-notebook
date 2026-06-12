@@ -193,6 +193,90 @@ async function buildLibraryPayload() {
   return { collections, items };
 }
 
+// ---------------------------------------------------------------------
+// Full text
+// ---------------------------------------------------------------------
+
+const FULLTEXT_DEFAULT_MAX = 80000;
+const FULLTEXT_HARD_MAX = 200000;
+
+/**
+ * Read the text Zotero already extracted for search (`.zotero-ft-cache`).
+ * Location mirrors Zotero.Fulltext's write logic: the item's storage
+ * directory for linked files, the file's own folder otherwise.
+ * Returns null when no cache exists.
+ */
+async function readFulltextCache(attachment) {
+  try {
+    let parentDir;
+    if (
+      attachment.attachmentLinkMode === Zotero.Attachments.LINK_MODE_LINKED_FILE
+    ) {
+      parentDir = Zotero.Attachments.getStorageDirectory(attachment).path;
+    } else {
+      const filePath = await attachment.getFilePathAsync();
+      if (!filePath) return null;
+      parentDir = PathUtils.parent(filePath);
+    }
+    const cachePath = PathUtils.join(
+      parentDir,
+      Zotero.Fulltext.fulltextCacheFile
+    );
+    if (!(await IOUtils.exists(cachePath))) return null;
+    const text = await Zotero.File.getContentsAsync(cachePath);
+    return typeof text === "string" ? text : String(text);
+  } catch (e) {
+    debug("fulltext cache read failed: " + e);
+    return null;
+  }
+}
+
+async function getFulltext(searchParams) {
+  const itemKey = (searchParams.get("itemKey") || "").trim();
+  if (!itemKey) {
+    return jsonError(400, "itemKey query parameter is required");
+  }
+  let maxChars = parseInt(searchParams.get("maxChars") || "", 10);
+  if (!Number.isFinite(maxChars) || maxChars <= 0) {
+    maxChars = FULLTEXT_DEFAULT_MAX;
+  }
+  maxChars = Math.min(maxChars, FULLTEXT_HARD_MAX);
+
+  const libraryID = Zotero.Libraries.userLibraryID;
+  const item = Zotero.Items.getByLibraryAndKey(libraryID, itemKey);
+  if (!item || !item.isRegularItem()) {
+    return jsonError(404, "no item with key '" + itemKey + "' in the user library");
+  }
+  const attachment = primaryPdfItem(item);
+  const empty = { text: null, indexed: false, truncated: false, chars: 0 };
+  if (!attachment) {
+    return jsonResponse(200, empty);
+  }
+
+  let text = await readFulltextCache(attachment);
+  if (text === null) {
+    // Not indexed yet (e.g. freshly added PDF) — ask Zotero to extract it.
+    try {
+      await Zotero.Fulltext.indexItems([attachment.id], {});
+    } catch (e) {
+      debug("on-demand indexing failed for " + itemKey + ": " + e);
+    }
+    text = await readFulltextCache(attachment);
+  }
+  if (text === null || !text.trim()) {
+    return jsonResponse(200, empty);
+  }
+
+  const chars = text.length;
+  const truncated = chars > maxChars;
+  return jsonResponse(200, {
+    text: truncated ? text.slice(0, maxChars) : text,
+    indexed: true,
+    truncated,
+    chars,
+  });
+}
+
 /**
  * Find or create the nested collection described by `targetPath`.
  * Existing names are matched case-insensitively so the LLM can never create
@@ -437,6 +521,23 @@ function makeLibraryEndpoint() {
   return Endpoint;
 }
 
+function makeFulltextEndpoint() {
+  const Endpoint = function () {};
+  Endpoint.prototype = {
+    supportedMethods: ["GET"],
+    permitBookmarklet: false,
+    init: async function (requestData) {
+      try {
+        return await getFulltext(requestData.searchParams);
+      } catch (e) {
+        debug("fulltext endpoint failed: " + e + "\n" + (e && e.stack));
+        return jsonError(500, "failed to read full text: " + (e.message || e));
+      }
+    },
+  };
+  return Endpoint;
+}
+
 function makeMoveItemEndpoint() {
   const Endpoint = function () {};
   Endpoint.prototype = {
@@ -469,6 +570,7 @@ function startup({ version }) {
     "/zotero-notebook/ping": makePingEndpoint(),
     "/zotero-notebook/library": makeLibraryEndpoint(),
     "/zotero-notebook/move-item": makeMoveItemEndpoint(),
+    "/zotero-notebook/fulltext": makeFulltextEndpoint(),
   };
   for (const [path, endpoint] of Object.entries(endpoints)) {
     Zotero.Server.Endpoints[path] = endpoint;

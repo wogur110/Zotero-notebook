@@ -203,8 +203,40 @@ pub struct MoveResult {
     pub new_file_path: Option<String>,
 }
 
-fn default_true() -> bool {
-    true
+/// What the prompt that produced a summary was based on. Determines the
+/// badge shown next to the summary.
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+pub enum SummarySource {
+    /// Extracted PDF text was included (highest quality).
+    Fulltext,
+    /// Title/venue plus an abstract (from Zotero or fetched online).
+    Abstract,
+    /// Title/venue only — flagged as potentially inaccurate.
+    Metadata,
+}
+
+impl SummarySource {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            SummarySource::Fulltext => "fulltext",
+            SummarySource::Abstract => "abstract",
+            SummarySource::Metadata => "metadata",
+        }
+    }
+
+    pub fn parse(s: &str) -> Option<SummarySource> {
+        match s {
+            "fulltext" => Some(SummarySource::Fulltext),
+            "abstract" => Some(SummarySource::Abstract),
+            "metadata" => Some(SummarySource::Metadata),
+            _ => None,
+        }
+    }
+}
+
+fn default_source() -> SummarySource {
+    SummarySource::Abstract
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -216,13 +248,34 @@ pub struct StoredSummary {
     pub model: String,
     /// RFC 3339.
     pub created_at: String,
-    /// Whether the prompt that produced this summary included an abstract
-    /// (from Zotero or fetched from Crossref/Semantic Scholar/OpenAlex).
-    /// When false the summary is based on title/venue only — the UI flags
-    /// it as potentially inaccurate. Defaults to true for rows written
-    /// before this field existed.
-    #[serde(default = "default_true")]
-    pub had_abstract: bool,
+    /// What the summarization prompt contained; see `SummarySource`.
+    /// Rows written before this field existed default to `Abstract`
+    /// (no badge either way).
+    #[serde(default = "default_source")]
+    pub source: SummarySource,
+}
+
+/// One turn of the "Ask AI" conversation about a paper.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct ChatMessage {
+    pub role: ChatRole,
+    pub content: String,
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+pub enum ChatRole {
+    User,
+    Assistant,
+}
+
+/// Streaming payload for the `chat-delta` event.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct ChatDelta {
+    pub item_key: String,
+    pub delta: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]

@@ -4,13 +4,15 @@ import type { Item, Library } from "../types";
 
 vi.mock("../api", () => ({
   getSummary: vi.fn(async () => null),
+  chatWithItem: vi.fn(async () => "The main contribution is the DDPM framework."),
+  onChatDelta: vi.fn(async () => () => {}),
   summarizeItem: vi.fn(async () => ({
     itemKey: "I1",
     summary: "A generated summary of the paper.",
     provider: "anthropic",
     model: "claude-opus-4-8",
     createdAt: "2026-06-11T00:00:00Z",
-    hadAbstract: false,
+    source: "metadata",
   })),
   classifyItems: vi.fn(async () => [
     {
@@ -41,6 +43,7 @@ vi.mock("../api", () => ({
 vi.mock("@tauri-apps/plugin-opener", () => ({ openUrl: vi.fn(async () => {}) }));
 
 import * as api from "../api";
+import ChatPanel from "../components/ChatPanel";
 import ItemDetailModal from "../components/ItemDetailModal";
 import UnclassifiedView from "../views/UnclassifiedView";
 
@@ -101,7 +104,7 @@ describe("ItemDetailModal", () => {
         screen.getByText("A generated summary of the paper."),
       ).toBeInTheDocument(),
     );
-    expect(api.summarizeItem).toHaveBeenCalledWith("I1", "anthropic");
+    expect(api.summarizeItem).toHaveBeenCalledWith("I1", "anthropic", false);
     // hadAbstract: false in the mock → metadata-only warning badge.
     expect(
       screen.getByText(/No abstract — title\/venue only/),
@@ -119,6 +122,65 @@ describe("ItemDetailModal", () => {
     );
     fireEvent.click(screen.getByText("Show in Folder"));
     await waitFor(() => expect(api.revealItemFile).toHaveBeenCalledWith("I1"));
+  });
+});
+
+describe("ItemDetailModal Ask AI tab", () => {
+  it("switches to the chat tab and asks a question", async () => {
+    render(
+      <ItemDetailModal
+        item={library.items[0]}
+        library={library}
+        defaultProvider="anthropic"
+        onClose={() => {}}
+      />,
+    );
+    fireEvent.click(screen.getByRole("tab", { name: /Ask AI/ }));
+    expect(
+      screen.getByText("Ask anything about this paper"),
+    ).toBeInTheDocument();
+
+    // Suggestion chips fire a first question.
+    fireEvent.click(
+      screen.getByRole("button", { name: "What problem does this paper solve?" }),
+    );
+    await screen.findByText("The main contribution is the DDPM framework.");
+    expect(api.chatWithItem).toHaveBeenCalledWith(
+      "I1",
+      [{ role: "user", content: "What problem does this paper solve?" }],
+      "anthropic",
+    );
+  });
+});
+
+describe("ChatPanel", () => {
+  it("sends follow-up questions with the full history", async () => {
+    render(<ChatPanel item={library.items[0]} defaultProvider="gemini" />);
+
+    const input = screen.getByPlaceholderText("Ask about this paper…");
+    fireEvent.change(input, { target: { value: "First question?" } });
+    fireEvent.click(screen.getByRole("button", { name: "Send" }));
+    await screen.findByText("The main contribution is the DDPM framework.");
+
+    fireEvent.change(
+      screen.getByPlaceholderText("Ask about this paper…"),
+      { target: { value: "And a follow-up?" } },
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Send" }));
+    await waitFor(() =>
+      expect(api.chatWithItem).toHaveBeenLastCalledWith(
+        "I1",
+        [
+          { role: "user", content: "First question?" },
+          {
+            role: "assistant",
+            content: "The main contribution is the DDPM framework.",
+          },
+          { role: "user", content: "And a follow-up?" },
+        ],
+        "gemini",
+      ),
+    );
   });
 });
 

@@ -89,6 +89,34 @@ Details:
 
 ---
 
+## GET /zotero-notebook/fulltext?itemKey=KEY&maxChars=N
+
+The extracted text of the item's primary PDF, served from Zotero's own
+full-text search cache (`.zotero-ft-cache`). When the PDF was never indexed
+the plugin asks Zotero to index it on demand before answering.
+
+- `itemKey` (required): the regular item's key.
+- `maxChars` (optional): truncate the returned text to this many characters
+  (default 80 000, hard cap 200 000). `chars` always reports the full
+  length so the caller knows how much was cut.
+
+**200 response**
+
+```json
+{ "text": "Denoising diffusion probabilistic models are...", "indexed": true, "truncated": false, "chars": 54321 }
+```
+
+When the item has no PDF, or no text could be extracted (scanned PDF
+without OCR, missing file):
+
+```json
+{ "text": null, "indexed": false, "truncated": false, "chars": 0 }
+```
+
+Errors: 400 (missing `itemKey`), 404 (unknown item) with `{"error": ...}`.
+
+---
+
 ## POST /zotero-notebook/move-item
 
 Atomically reclassify one item: ensure the target collection path exists

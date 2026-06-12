@@ -6,6 +6,8 @@ import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import type {
   AppSettings,
   AuditProposal,
+  ChatDelta,
+  ChatMessage,
   ClassificationDecision,
   ClassificationProposal,
   Library,
@@ -22,8 +24,28 @@ export const getLibrary = () => invoke<Library>("get_library");
 export const getSummary = (itemKey: string) =>
   invoke<StoredSummary | null>("get_summary", { itemKey });
 
-export const summarizeItem = (itemKey: string, provider?: ProviderId) =>
-  invoke<StoredSummary>("summarize_item", { itemKey, provider: provider ?? null });
+export const summarizeItem = (
+  itemKey: string,
+  provider?: ProviderId,
+  useFulltext = false,
+) =>
+  invoke<StoredSummary>("summarize_item", {
+    itemKey,
+    provider: provider ?? null,
+    useFulltext,
+  });
+
+/** One chat turn; the answer also streams via `onChatDelta`. */
+export const chatWithItem = (
+  itemKey: string,
+  history: ChatMessage[],
+  provider?: ProviderId,
+) =>
+  invoke<string>("chat_with_item", {
+    itemKey,
+    history,
+    provider: provider ?? null,
+  });
 
 export const classifyItems = (itemKeys: string[], provider?: ProviderId) =>
   invoke<ClassificationProposal[]>("classify_items", {
@@ -74,6 +96,10 @@ export const onClassifyProgress = (
   cb: (p: ProgressEvent) => void,
 ): Promise<UnlistenFn> =>
   listen<ProgressEvent>("classify-progress", (e) => cb(e.payload));
+
+export const onChatDelta = (
+  cb: (d: ChatDelta) => void,
+): Promise<UnlistenFn> => listen<ChatDelta>("chat-delta", (e) => cb(e.payload));
 
 export const onAuditProgress = (
   cb: (p: ProgressEvent) => void,

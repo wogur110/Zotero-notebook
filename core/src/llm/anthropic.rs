@@ -13,6 +13,8 @@ use crate::llm::provider::{
     audit_prompt, audit_schema, classify_prompt, classify_schema, summarize_prompt,
     AuditRequest, AuditResponse, ClassifyRequest, ClassifyResponse, SummarizeRequest,
 };
+use crate::llm::sse;
+use crate::models::{ChatMessage, ChatRole};
 
 const API_VERSION: &str = "2023-06-01";
 const PROVIDER: &str = "anthropic";
@@ -39,15 +41,38 @@ impl AnthropicClient {
         }
     }
 
-    async fn messages(&self, body: Value) -> Result<Value> {
-        let url = format!("{}/v1/messages", self.base_url);
-        let resp = self
-            .http
-            .post(&url)
+    fn request(&self, body: &Value) -> reqwest::RequestBuilder {
+        self.http
+            .post(format!("{}/v1/messages", self.base_url))
             .header("x-api-key", &self.api_key)
             .header("anthropic-version", API_VERSION)
             .header("content-type", "application/json")
-            .json(&body)
+            .json(body)
+    }
+
+    fn map_http_error(&self, status: reqwest::StatusCode, body: &str) -> Error {
+        let api_message = serde_json::from_str::<Value>(body)
+            .ok()
+            .and_then(|v| {
+                v.pointer("/error/message")
+                    .and_then(|m| m.as_str())
+                    .map(String::from)
+            })
+            .unwrap_or_else(|| snippet(body));
+        match status.as_u16() {
+            401 => Error::llm(PROVIDER, "Invalid Anthropic API key"),
+            404 => Error::llm(
+                PROVIDER,
+                format!("Unknown model '{}': {api_message}", self.model),
+            ),
+            429 => Error::llm(PROVIDER, "Anthropic rate limit reached — try again shortly"),
+            _ => Error::llm(PROVIDER, format!("HTTP {status}: {api_message}")),
+        }
+    }
+
+    async fn messages(&self, body: Value) -> Result<Value> {
+        let resp = self
+            .request(&body)
             .send()
             .await
             .map_err(|e| Error::llm(PROVIDER, format!("request failed: {e}")))?;
@@ -58,23 +83,7 @@ impl AnthropicClient {
             .map_err(|e| Error::llm(PROVIDER, format!("reading response failed: {e}")))?;
 
         if !status.is_success() {
-            let api_message = serde_json::from_str::<Value>(&text)
-                .ok()
-                .and_then(|v| {
-                    v.pointer("/error/message")
-                        .and_then(|m| m.as_str())
-                        .map(String::from)
-                })
-                .unwrap_or_else(|| snippet(&text));
-            return Err(match status.as_u16() {
-                401 => Error::llm(PROVIDER, "Invalid Anthropic API key"),
-                404 => Error::llm(
-                    PROVIDER,
-                    format!("Unknown model '{}': {api_message}", self.model),
-                ),
-                429 => Error::llm(PROVIDER, "Anthropic rate limit reached — try again shortly"),
-                _ => Error::llm(PROVIDER, format!("HTTP {status}: {api_message}")),
-            });
+            return Err(self.map_http_error(status, &text));
         }
 
         serde_json::from_str(&text)
@@ -165,6 +174,90 @@ impl AnthropicClient {
         let text = Self::extract_text(&value, true)?;
         serde_json::from_str(&text)
             .map_err(|e| Error::llm(PROVIDER, format!("audit result was not valid JSON: {e}")))
+    }
+
+    /// Streamed chat (`"stream": true`). Emits text deltas through
+    /// `on_delta` and returns the concatenated answer.
+    pub async fn chat_stream<F: FnMut(&str)>(
+        &self,
+        system: &str,
+        messages: &[ChatMessage],
+        on_delta: &mut F,
+    ) -> Result<String> {
+        let wire_messages: Vec<Value> = messages
+            .iter()
+            .map(|m| {
+                json!({
+                    "role": match m.role {
+                        ChatRole::User => "user",
+                        ChatRole::Assistant => "assistant",
+                    },
+                    "content": m.content
+                })
+            })
+            .collect();
+        let body = json!({
+            "model": self.model,
+            "max_tokens": 2048,
+            "stream": true,
+            "system": system,
+            "messages": wire_messages,
+        });
+        let resp = self
+            .request(&body)
+            .send()
+            .await
+            .map_err(|e| Error::llm(PROVIDER, format!("request failed: {e}")))?;
+        let status = resp.status();
+        if !status.is_success() {
+            let text = resp.text().await.unwrap_or_default();
+            return Err(self.map_http_error(status, &text));
+        }
+
+        let mut full = String::new();
+        sse::for_each_data(resp, |data| {
+            let value: Value = match serde_json::from_str(data) {
+                Ok(v) => v,
+                Err(_) => return Ok(()),
+            };
+            match value.get("type").and_then(|t| t.as_str()) {
+                Some("content_block_delta") => {
+                    if value.pointer("/delta/type").and_then(|t| t.as_str())
+                        == Some("text_delta")
+                    {
+                        if let Some(t) = value.pointer("/delta/text").and_then(|t| t.as_str()) {
+                            full.push_str(t);
+                            on_delta(t);
+                        }
+                    }
+                }
+                Some("message_delta") => {
+                    if value.pointer("/delta/stop_reason").and_then(|s| s.as_str())
+                        == Some("refusal")
+                    {
+                        return Err(Error::llm(
+                            PROVIDER,
+                            "the request was declined by the model's safety system",
+                        ));
+                    }
+                }
+                Some("error") => {
+                    let msg = value
+                        .pointer("/error/message")
+                        .and_then(|m| m.as_str())
+                        .unwrap_or("stream error");
+                    return Err(Error::llm(PROVIDER, msg));
+                }
+                _ => {}
+            }
+            Ok(())
+        })
+        .await?;
+
+        if full.trim().is_empty() {
+            return Err(Error::llm(PROVIDER, "response contained no text"));
+        }
+        Ok(full)
     }
 }
 

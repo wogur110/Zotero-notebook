@@ -10,6 +10,8 @@ use crate::llm::provider::{
     audit_prompt, classify_prompt, summarize_prompt, AuditRequest, AuditResponse,
     ClassifyRequest, ClassifyResponse, SummarizeRequest,
 };
+use crate::llm::sse;
+use crate::models::{ChatMessage, ChatRole};
 
 const TEST_MODEL: &str = "gemini-2.5-flash";
 const PROVIDER: &str = "gemini";
@@ -163,6 +165,90 @@ impl GeminiClient {
         let text = Self::extract_text(&value)?;
         serde_json::from_str(&text)
             .map_err(|e| Error::llm(PROVIDER, format!("audit result was not valid JSON: {e}")))
+    }
+
+    /// Streamed chat (`:streamGenerateContent?alt=sse`). Emits text deltas
+    /// through `on_delta` and returns the concatenated answer.
+    pub async fn chat_stream<F: FnMut(&str)>(
+        &self,
+        system: &str,
+        messages: &[ChatMessage],
+        on_delta: &mut F,
+    ) -> Result<String> {
+        let contents: Vec<Value> = messages
+            .iter()
+            .map(|m| {
+                json!({
+                    "role": match m.role {
+                        ChatRole::User => "user",
+                        ChatRole::Assistant => "model",
+                    },
+                    "parts": [{ "text": m.content }]
+                })
+            })
+            .collect();
+        let body = json!({
+            "systemInstruction": { "parts": [{ "text": system }] },
+            "contents": contents,
+        });
+        let url = format!(
+            "{}/v1beta/models/{}:streamGenerateContent?alt=sse&key={}",
+            self.base_url, self.model, self.api_key
+        );
+        let resp = self
+            .http
+            .post(&url)
+            .json(&body)
+            .send()
+            .await
+            .map_err(|e| Error::llm(PROVIDER, format!("request failed: {e}")))?;
+        let status = resp.status();
+        if !status.is_success() {
+            let text = resp.text().await.unwrap_or_default();
+            return Err(match status.as_u16() {
+                400 if text.contains("API_KEY_INVALID") => {
+                    Error::llm(PROVIDER, "Invalid Gemini API key")
+                }
+                401 | 403 => Error::llm(PROVIDER, "Invalid Gemini API key"),
+                429 => Error::llm(PROVIDER, "Gemini rate limit reached — try again shortly"),
+                _ => Error::llm(PROVIDER, format!("HTTP {status}: {}", snippet(&text))),
+            });
+        }
+
+        let mut full = String::new();
+        sse::for_each_data(resp, |data| {
+            let value: Value = match serde_json::from_str(data) {
+                Ok(v) => v,
+                Err(_) => return Ok(()), // tolerate non-JSON keep-alives
+            };
+            if let Some(reason) = value
+                .pointer("/promptFeedback/blockReason")
+                .and_then(|v| v.as_str())
+            {
+                return Err(Error::llm(
+                    PROVIDER,
+                    format!("the request was blocked by Gemini (reason: {reason})"),
+                ));
+            }
+            if let Some(parts) = value
+                .pointer("/candidates/0/content/parts")
+                .and_then(|v| v.as_array())
+            {
+                for part in parts {
+                    if let Some(t) = part.get("text").and_then(|t| t.as_str()) {
+                        full.push_str(t);
+                        on_delta(t);
+                    }
+                }
+            }
+            Ok(())
+        })
+        .await?;
+
+        if full.trim().is_empty() {
+            return Err(Error::llm(PROVIDER, "Gemini returned an empty response"));
+        }
+        Ok(full)
     }
 }
 

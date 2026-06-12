@@ -8,7 +8,15 @@ use wiremock::{Mock, MockServer, Request, ResponseTemplate};
 use zn_core::llm::anthropic::AnthropicClient;
 use zn_core::llm::gemini::GeminiClient;
 use zn_core::llm::provider::{AuditRequest, ClassifyRequest, SummarizeRequest};
+use zn_core::models::{ChatMessage, ChatRole};
 use zn_core::Error;
+
+fn chat_history() -> Vec<ChatMessage> {
+    vec![ChatMessage {
+        role: ChatRole::User,
+        content: "What is the main contribution?".into(),
+    }]
+}
 
 fn summarize_req() -> SummarizeRequest {
     SummarizeRequest {
@@ -17,6 +25,7 @@ fn summarize_req() -> SummarizeRequest {
         year: Some(2020),
         publication: Some("NeurIPS".into()),
         abstract_text: Some("We present high quality image synthesis.".into()),
+        body_excerpt: None,
     }
 }
 
@@ -128,6 +137,61 @@ async fn gemini_audit_request_shape_and_parsing() {
     let resp = client.audit(&audit_req()).await.unwrap();
     assert!(resp.misplaced);
     assert_eq!(resp.path, vec!["NLP"]);
+}
+
+#[tokio::test]
+async fn gemini_summarize_includes_body_excerpt() {
+    let server = MockServer::start().await;
+    Mock::given(method("POST"))
+        .and(path("/v1beta/models/gemini-2.5-pro:generateContent"))
+        .respond_with(|req: &Request| {
+            let body: serde_json::Value = serde_json::from_slice(&req.body).unwrap();
+            let text = body["contents"][0]["parts"][0]["text"].as_str().unwrap();
+            assert!(text.contains("UNIQUE_BODY_TOKEN"), "prompt carries the body");
+            assert!(text.contains("Full text"), "full-text framing used");
+            ResponseTemplate::new(200).set_body_json(json!({
+                "candidates": [{ "content": { "parts": [{ "text": "A deep summary." }] } }]
+            }))
+        })
+        .mount(&server)
+        .await;
+
+    let client = GeminiClient::new("k".into(), "gemini-2.5-pro".into(), server.uri());
+    let mut req = summarize_req();
+    req.body_excerpt = Some("UNIQUE_BODY_TOKEN and the rest of the paper".into());
+    assert_eq!(client.summarize(&req).await.unwrap(), "A deep summary.");
+}
+
+#[tokio::test]
+async fn gemini_chat_streams_deltas() {
+    let server = MockServer::start().await;
+    let sse = concat!(
+        "data: {\"candidates\":[{\"content\":{\"parts\":[{\"text\":\"Hel\"}]}}]}\n\n",
+        "data: {\"candidates\":[{\"content\":{\"parts\":[{\"text\":\"lo\"}]}}]}\n\n",
+    );
+    Mock::given(method("POST"))
+        .and(path("/v1beta/models/gemini-2.5-pro:streamGenerateContent"))
+        .and(query_param("alt", "sse"))
+        .respond_with(move |req: &Request| {
+            let body: serde_json::Value = serde_json::from_slice(&req.body).unwrap();
+            assert_eq!(
+                body["systemInstruction"]["parts"][0]["text"], "SYSTEM",
+                "system prompt forwarded"
+            );
+            assert_eq!(body["contents"][0]["role"], "user");
+            ResponseTemplate::new(200).set_body_raw(sse, "text/event-stream")
+        })
+        .mount(&server)
+        .await;
+
+    let client = GeminiClient::new("k".into(), "gemini-2.5-pro".into(), server.uri());
+    let mut deltas: Vec<String> = Vec::new();
+    let full = client
+        .chat_stream("SYSTEM", &chat_history(), &mut |t| deltas.push(t.into()))
+        .await
+        .unwrap();
+    assert_eq!(full, "Hello");
+    assert_eq!(deltas, vec!["Hel".to_string(), "lo".to_string()]);
 }
 
 #[tokio::test]
@@ -250,6 +314,65 @@ async fn anthropic_audit_request_shape_and_parsing() {
     let resp = client.audit(&audit_req()).await.unwrap();
     assert!(!resp.misplaced);
     assert!(resp.path.is_empty());
+}
+
+#[tokio::test]
+async fn anthropic_chat_streams_deltas() {
+    let server = MockServer::start().await;
+    let sse = concat!(
+        "event: message_start\n",
+        "data: {\"type\":\"message_start\"}\n\n",
+        "event: content_block_delta\n",
+        "data: {\"type\":\"content_block_delta\",\"delta\":{\"type\":\"text_delta\",\"text\":\"The \"}}\n\n",
+        "event: content_block_delta\n",
+        "data: {\"type\":\"content_block_delta\",\"delta\":{\"type\":\"text_delta\",\"text\":\"answer.\"}}\n\n",
+        "event: message_delta\n",
+        "data: {\"type\":\"message_delta\",\"delta\":{\"stop_reason\":\"end_turn\"}}\n\n",
+    );
+    Mock::given(method("POST"))
+        .and(path("/v1/messages"))
+        .respond_with(move |req: &Request| {
+            let body: serde_json::Value = serde_json::from_slice(&req.body).unwrap();
+            assert_eq!(body["stream"], true);
+            assert_eq!(body["system"], "SYSTEM");
+            assert!(body.get("temperature").is_none(), "no sampling params");
+            assert_eq!(body["messages"][0]["role"], "user");
+            ResponseTemplate::new(200).set_body_raw(sse, "text/event-stream")
+        })
+        .mount(&server)
+        .await;
+
+    let client = AnthropicClient::new("k".into(), "claude-opus-4-8".into(), server.uri());
+    let mut deltas: Vec<String> = Vec::new();
+    let full = client
+        .chat_stream("SYSTEM", &chat_history(), &mut |t| deltas.push(t.into()))
+        .await
+        .unwrap();
+    assert_eq!(full, "The answer.");
+    assert_eq!(deltas.len(), 2);
+}
+
+#[tokio::test]
+async fn anthropic_chat_stream_refusal_is_an_error() {
+    let server = MockServer::start().await;
+    let sse = concat!(
+        "event: content_block_delta\n",
+        "data: {\"type\":\"content_block_delta\",\"delta\":{\"type\":\"text_delta\",\"text\":\"part\"}}\n\n",
+        "event: message_delta\n",
+        "data: {\"type\":\"message_delta\",\"delta\":{\"stop_reason\":\"refusal\"}}\n\n",
+    );
+    Mock::given(method("POST"))
+        .and(path("/v1/messages"))
+        .respond_with(ResponseTemplate::new(200).set_body_raw(sse, "text/event-stream"))
+        .mount(&server)
+        .await;
+
+    let client = AnthropicClient::new("k".into(), "claude-opus-4-8".into(), server.uri());
+    let err = client
+        .chat_stream("SYSTEM", &chat_history(), &mut |_| {})
+        .await
+        .unwrap_err();
+    assert!(err.to_string().contains("safety"), "got: {err}");
 }
 
 #[tokio::test]
