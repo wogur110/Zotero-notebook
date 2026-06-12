@@ -24,6 +24,7 @@ pub mod llm {
     //! LLM providers behind a common interface (`AnyProvider`).
     pub mod anthropic;
     pub mod gemini;
+    pub mod openai_compat;
     pub mod provider;
     pub mod sse;
     pub use provider::{AnyProvider, ClassifyRequest, ClassifyResponse, SummarizeRequest};

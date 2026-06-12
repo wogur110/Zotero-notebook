@@ -50,6 +50,18 @@ async fn get_key_blocking(id: ProviderId) -> Result<Option<String>> {
 
 async fn build_provider(provider: Option<ProviderId>, s: &AppSettings) -> Result<AnyProvider> {
     let id = provider.unwrap_or(s.default_provider);
+    // Local servers don't require a key; a stored one is forwarded as a
+    // Bearer token for setups that do (e.g. a shared llama.cpp box).
+    if id == ProviderId::Local {
+        let key = get_key_blocking(id).await.unwrap_or(None);
+        return Ok(AnyProvider::Local(
+            zn_core::llm::openai_compat::OpenAiCompatClient::new(
+                key,
+                s.local_model.clone(),
+                s.local_base_url.clone(),
+            ),
+        ));
+    }
     let key = get_key_blocking(id)
         .await?
         .ok_or_else(|| Error::MissingApiKey(id.as_str().to_string()))?;
@@ -66,6 +78,7 @@ async fn build_provider(provider: Option<ProviderId>, s: &AppSettings) -> Result
                 ANTHROPIC_BASE_URL.to_string(),
             ))
         }
+        ProviderId::Local => unreachable!("handled above"),
     })
 }
 
@@ -190,6 +203,7 @@ async fn summarize_item(
     let model = match llm.id() {
         ProviderId::Gemini => s.gemini_model.clone(),
         ProviderId::Anthropic => s.anthropic_model.clone(),
+        ProviderId::Local => s.local_model.clone(),
     };
     let summary = StoredSummary {
         item_key: item_key.clone(),

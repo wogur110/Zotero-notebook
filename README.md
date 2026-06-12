@@ -28,12 +28,14 @@ failure.
   item counts, straight from the running Zotero instance.
 - **Zotero metadata for every PDF** — authors, venue, year, DOI, tags,
   abstract, collections, and the resolved file path on disk.
-- **AI summaries with Gemini *and* Claude** — one click in the paper popup;
-  stored locally in SQLite and keyed to the Zotero item. The default summary
-  uses metadata + abstract (cheap); a separate **Full-text summary** button
-  reads the whole PDF (via Zotero's extracted text) for a deeper summary.
-  Models are configurable (defaults: `gemini-2.5-pro`, `claude-opus-4-8`);
-  keys live in the OS keychain.
+- **AI summaries with Gemini, Claude, *or* a local LLM** — one click in the
+  paper popup; stored locally in SQLite and keyed to the Zotero item. The
+  default summary uses metadata + abstract (cheap); a separate **Full-text
+  summary** button reads the whole PDF (via Zotero's extracted text) for a
+  deeper summary. Models are configurable (defaults: `gemini-2.5-pro`,
+  `claude-opus-4-8`); cloud keys live in the OS keychain. The local
+  provider talks to any OpenAI-compatible server (Ollama, LM Studio,
+  llama.cpp) — see [Using a local LLM](#using-a-local-llm-no-cloud-no-api-key).
 - **Ask AI about a paper** — a chat tab in the paper popup, grounded in the
   PDF's extracted full text, with streaming answers (always in English).
 - **Fast search** — `Ctrl/Cmd+K` fuzzy search across titles, authors, tags,
@@ -64,12 +66,63 @@ failure.
    Save plugin file*.
 3. Run Zotero Notebook. The onboarding checks that Zotero is running and the
    plugin is detected. Without the plugin the app works in read-only mode.
-4. *(Optional, enables AI features)* Add an API key in Settings:
+4. *(Optional, enables AI features)* Add an API key in Settings —
    [Gemini](https://aistudio.google.com/apikey) or
-   [Anthropic](https://console.anthropic.com/).
+   [Anthropic](https://console.anthropic.com/) — **or** run everything
+   locally with no key at all: see
+   [Using a local LLM](#using-a-local-llm-no-cloud-no-api-key).
 5. *(Optional, enables file moves)* Set **Settings → Files** to your linked
    PDF root folder — typically your ZotMoov destination. Leave it empty to
    move only Zotero collections and never touch files.
+
+## Using a local LLM (no cloud, no API key)
+
+Every AI feature — summaries, full-text summaries, Ask AI chat,
+classification, and the filing check — can run entirely on your machine
+through any **OpenAI-compatible** server. Your papers never leave your
+computer and there is nothing to pay per request.
+
+### Recommended: Ollama
+
+1. **Install [Ollama](https://ollama.com/download)** (Windows installer;
+   or `winget install Ollama.Ollama`). After installation Ollama runs as a
+   background service on `http://127.0.0.1:11434`.
+2. **Download a model** in a terminal:
+
+   ```bash
+   ollama pull llama3.1:8b      # good starting point, ~5 GB
+   ```
+
+   Larger models give noticeably better classification/chat quality if your
+   GPU/RAM allows (e.g. `qwen2.5:14b`, `llama3.1:70b`).
+3. In Zotero Notebook open **Settings → AI Provider**, select **Local LLM**,
+   and check the fields (defaults match Ollama):
+   - *Server URL*: `http://127.0.0.1:11434/v1`
+   - *Model*: `llama3.1:8b` (whatever you pulled)
+4. **Save changes**, then press **Test** — you should see "Works".
+
+### Alternative: LM Studio (GUI)
+
+1. Install [LM Studio](https://lmstudio.ai/), download a model from its
+   built-in browser, and start the **local server** (Developer tab).
+2. In Settings → Local LLM set the URL to `http://127.0.0.1:1234/v1` and
+   the model to the name LM Studio shows. Any other OpenAI-compatible
+   server (llama.cpp `llama-server`, vLLM, …) works the same way — point
+   the URL at it.
+
+### Notes on local models
+
+- No API key is needed (a stored key is sent as a Bearer token for servers
+  that require one).
+- Small local models are weaker than Gemini/Claude at producing the strict
+  JSON the classification and filing-check features need. The app embeds
+  the JSON schema in the prompt, requests structured output when the server
+  supports it, and tolerates markdown-wrapped answers — but with 7–8B
+  models expect the occasional skipped paper (it simply stays put / keeps
+  its summary). Chat and summaries work well even on small models.
+- Local inference is slower than the cloud APIs, especially full-text
+  summaries and chat over long papers (the app allows up to 10 minutes per
+  request).
 
 ### Works with your existing ZotMoov setup
 

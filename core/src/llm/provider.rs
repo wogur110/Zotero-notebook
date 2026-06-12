@@ -16,7 +16,9 @@
 use serde::{Deserialize, Serialize};
 
 use crate::error::Result;
-use crate::llm::{anthropic::AnthropicClient, gemini::GeminiClient};
+use crate::llm::{
+    anthropic::AnthropicClient, gemini::GeminiClient, openai_compat::OpenAiCompatClient,
+};
 use crate::models::ProviderId;
 
 /// Default public base URLs (overridable for tests).
@@ -308,6 +310,7 @@ pub fn audit_prompt(req: &AuditRequest) -> String {
 pub enum AnyProvider {
     Gemini(GeminiClient),
     Anthropic(AnthropicClient),
+    Local(OpenAiCompatClient),
 }
 
 impl AnyProvider {
@@ -315,6 +318,7 @@ impl AnyProvider {
         match self {
             AnyProvider::Gemini(_) => ProviderId::Gemini,
             AnyProvider::Anthropic(_) => ProviderId::Anthropic,
+            AnyProvider::Local(_) => ProviderId::Local,
         }
     }
 
@@ -322,6 +326,7 @@ impl AnyProvider {
         match self {
             AnyProvider::Gemini(c) => c.test_key().await,
             AnyProvider::Anthropic(c) => c.test_key().await,
+            AnyProvider::Local(c) => c.test_key().await,
         }
     }
 
@@ -329,6 +334,7 @@ impl AnyProvider {
         match self {
             AnyProvider::Gemini(c) => c.summarize(req).await,
             AnyProvider::Anthropic(c) => c.summarize(req).await,
+            AnyProvider::Local(c) => c.summarize(req).await,
         }
     }
 
@@ -336,6 +342,7 @@ impl AnyProvider {
         match self {
             AnyProvider::Gemini(c) => c.classify(req).await,
             AnyProvider::Anthropic(c) => c.classify(req).await,
+            AnyProvider::Local(c) => c.classify(req).await,
         }
     }
 
@@ -343,6 +350,7 @@ impl AnyProvider {
         match self {
             AnyProvider::Gemini(c) => c.audit(req).await,
             AnyProvider::Anthropic(c) => c.audit(req).await,
+            AnyProvider::Local(c) => c.audit(req).await,
         }
     }
 
@@ -357,6 +365,7 @@ impl AnyProvider {
         match self {
             AnyProvider::Gemini(c) => c.chat_stream(system, messages, on_delta).await,
             AnyProvider::Anthropic(c) => c.chat_stream(system, messages, on_delta).await,
+            AnyProvider::Local(c) => c.chat_stream(system, messages, on_delta).await,
         }
     }
 }

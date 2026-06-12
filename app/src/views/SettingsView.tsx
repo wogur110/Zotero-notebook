@@ -94,8 +94,14 @@ function ProviderSection({
       title="AI Provider"
       description="Used for summaries and classification. Keys are stored in your OS keychain, never in files."
     >
-      <div className="grid grid-cols-2 gap-2">
-        {(["gemini", "anthropic"] as ProviderId[]).map((p) => (
+      <div className="grid grid-cols-3 gap-2">
+        {(
+          [
+            ["gemini", "Google Gemini", "Google AI Studio API"],
+            ["anthropic", "Anthropic Claude", "Anthropic Messages API"],
+            ["local", "Local LLM", "Ollama / LM Studio / llama.cpp"],
+          ] as [ProviderId, string, string][]
+        ).map(([p, name, sub]) => (
           <button
             key={p}
             onClick={() => setDraft({ ...draft, defaultProvider: p })}
@@ -106,12 +112,8 @@ function ProviderSection({
             }`}
             aria-pressed={draft.defaultProvider === p}
           >
-            <p className="text-sm font-semibold">
-              {p === "gemini" ? "Google Gemini" : "Anthropic Claude"}
-            </p>
-            <p className="mt-0.5 text-xs text-muted">
-              {p === "gemini" ? "Google AI Studio API" : "Anthropic Messages API"}
-            </p>
+            <p className="text-sm font-semibold">{name}</p>
+            <p className="mt-0.5 text-xs text-muted">{sub}</p>
           </button>
         ))}
       </div>
@@ -128,7 +130,84 @@ function ProviderSection({
         model={draft.anthropicModel}
         onModel={(m) => setDraft({ ...draft, anthropicModel: m })}
       />
+      <LocalProviderConfig draft={draft} setDraft={setDraft} />
     </Section>
+  );
+}
+
+function LocalProviderConfig({
+  draft,
+  setDraft,
+}: {
+  draft: AppSettings;
+  setDraft: (s: AppSettings) => void;
+}) {
+  const [busy, setBusy] = useState(false);
+  const [testResult, setTestResult] = useState<"ok" | string | null>(null);
+
+  const test = async () => {
+    setBusy(true);
+    setTestResult(null);
+    try {
+      await api.testApiKey("local");
+      setTestResult("ok");
+    } catch (e) {
+      setTestResult(api.errorMessage(e));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <div className="rounded-lg border border-edge bg-raised p-3">
+      <div className="mb-2 flex items-center gap-2">
+        <p className="text-sm font-medium">Local LLM</p>
+        <span className="badge bg-ok-soft text-ok">No API key needed</span>
+        <div className="flex-1" />
+        <button
+          className="btn-secondary py-1! text-xs"
+          onClick={() => void test()}
+          disabled={busy}
+        >
+          {busy ? <IconLoader size={12} /> : null} Test
+        </button>
+      </div>
+      <div className="grid grid-cols-2 gap-2">
+        <label className="block">
+          <span className="text-xs text-muted">Server URL (with /v1)</span>
+          <input
+            className="input mt-1"
+            value={draft.localBaseUrl}
+            placeholder="http://127.0.0.1:11434/v1"
+            onChange={(e) => setDraft({ ...draft, localBaseUrl: e.target.value })}
+          />
+        </label>
+        <label className="block">
+          <span className="text-xs text-muted">Model</span>
+          <input
+            className="input mt-1"
+            value={draft.localModel}
+            placeholder="llama3.1:8b"
+            onChange={(e) => setDraft({ ...draft, localModel: e.target.value })}
+          />
+        </label>
+      </div>
+      <p className="mt-2 text-xs text-faint">
+        Runs entirely on your machine — papers never leave it. Ollama default:
+        http://127.0.0.1:11434/v1 · LM Studio: http://127.0.0.1:1234/v1.
+        Remember to save changes before testing.
+      </p>
+      {testResult === "ok" && (
+        <p className="mt-2 inline-flex items-center gap-1 rounded-md bg-ok-soft px-2 py-1 text-xs text-ok">
+          <IconCheck size={12} /> Works
+        </p>
+      )}
+      {testResult && testResult !== "ok" && (
+        <p className="mt-2 rounded-md bg-danger-soft px-2.5 py-1.5 text-xs text-danger">
+          {testResult}
+        </p>
+      )}
+    </div>
   );
 }
 

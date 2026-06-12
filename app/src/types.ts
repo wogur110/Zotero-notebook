@@ -53,7 +53,7 @@ export interface Library {
 
 export const UNCLASSIFIED_COLLECTION = "Unclassified";
 
-export type ProviderId = "gemini" | "anthropic";
+export type ProviderId = "gemini" | "anthropic" | "local";
 
 export interface ClassificationProposal {
   itemKey: string;
@@ -114,6 +114,9 @@ export interface AppSettings {
   defaultProvider: ProviderId;
   geminiModel: string;
   anthropicModel: string;
+  /** OpenAI-compatible local server, /v1 included (Ollama, LM Studio…). */
+  localBaseUrl: string;
+  localModel: string;
   zoteroBaseUrl: string;
   fileRoot: string | null;
 }

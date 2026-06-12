@@ -298,3 +298,27 @@ fn db_open_on_disk_creates_parents() {
     .unwrap();
     assert!(path.exists());
 }
+
+/// A settings.json written before the local-LLM fields existed must still
+/// parse (serde defaults), keeping the user's other settings intact.
+#[test]
+fn settings_parse_pre_local_provider_file() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("settings.json");
+    std::fs::write(
+        &path,
+        r#"{
+            "defaultProvider": "anthropic",
+            "geminiModel": "gemini-2.5-pro",
+            "anthropicModel": "claude-opus-4-8",
+            "zoteroBaseUrl": "http://127.0.0.1:23119",
+            "fileRoot": "/papers"
+        }"#,
+    )
+    .unwrap();
+    let s = settings::load(&path);
+    assert_eq!(s.default_provider, ProviderId::Anthropic, "old fields kept");
+    assert_eq!(s.file_root.as_deref(), Some("/papers"));
+    assert_eq!(s.local_base_url, "http://127.0.0.1:11434/v1", "new field defaulted");
+    assert_eq!(s.local_model, "llama3.1:8b");
+}

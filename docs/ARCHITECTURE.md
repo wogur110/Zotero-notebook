@@ -72,8 +72,14 @@ Events: `zotero-status` (`ZoteroStatus`), `classify-progress`,
 ## LLM providers
 
 `core/src/llm/provider.rs` defines the shared request/response types and
-`AnyProvider` (enum dispatch over `GeminiClient` / `AnthropicClient` — no
-trait objects, no async_trait).
+`AnyProvider` (enum dispatch over `GeminiClient` / `AnthropicClient` /
+`OpenAiCompatClient` — no trait objects, no async_trait). The third client
+covers local OpenAI-compatible runtimes (Ollama `/v1`, LM Studio,
+llama.cpp, vLLM): no API key required (optional Bearer), structured output
+requested via `response_format: json_schema` with the schema also embedded
+in the prompt, a one-shot retry without `response_format` for servers that
+reject the parameter, and a tolerant JSON extractor for fenced/prosy
+replies. Configured via `AppSettings.local_base_url` / `local_model`.
 
 - **Summarize**: metadata-only prompt (title, authors, venue, year,
   abstract). 5–8 sentence English summary. PDFs are never uploaded.

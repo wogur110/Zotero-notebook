@@ -131,6 +131,8 @@ pub const UNCLASSIFIED_COLLECTION: &str = "Unclassified";
 pub enum ProviderId {
     Gemini,
     Anthropic,
+    /// A local OpenAI-compatible server (Ollama, LM Studio, llama.cpp, …).
+    Local,
 }
 
 impl ProviderId {
@@ -138,6 +140,7 @@ impl ProviderId {
         match self {
             ProviderId::Gemini => "gemini",
             ProviderId::Anthropic => "anthropic",
+            ProviderId::Local => "local",
         }
     }
 }
@@ -278,12 +281,29 @@ pub struct ChatDelta {
     pub delta: String,
 }
 
+fn default_local_base_url() -> String {
+    // Ollama's OpenAI-compatible endpoint; LM Studio uses :1234/v1.
+    "http://127.0.0.1:11434/v1".into()
+}
+
+fn default_local_model() -> String {
+    "llama3.1:8b".into()
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub struct AppSettings {
     pub default_provider: ProviderId,
     pub gemini_model: String,
     pub anthropic_model: String,
+    /// OpenAI-compatible server for the Local provider (Ollama, LM Studio,
+    /// llama.cpp server, vLLM…). The `/v1` suffix is part of the URL.
+    /// serde defaults keep settings.json from older versions parseable.
+    #[serde(default = "default_local_base_url")]
+    pub local_base_url: String,
+    /// Model name as the local server knows it (e.g. "llama3.1:8b").
+    #[serde(default = "default_local_model")]
+    pub local_model: String,
     /// Base URL of the local Zotero server. Configurable so tests can point
     /// at a mock and WSL2 setups can point at the Windows host.
     pub zotero_base_url: String,
@@ -299,6 +319,8 @@ impl Default for AppSettings {
             default_provider: ProviderId::Gemini,
             gemini_model: "gemini-2.5-pro".into(),
             anthropic_model: "claude-opus-4-8".into(),
+            local_base_url: default_local_base_url(),
+            local_model: default_local_model(),
             zotero_base_url: "http://127.0.0.1:23119".into(),
             file_root: None,
         }

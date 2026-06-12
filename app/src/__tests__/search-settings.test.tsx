@@ -56,6 +56,8 @@ const settings: AppSettings = {
   defaultProvider: "gemini",
   geminiModel: "gemini-2.5-pro",
   anthropicModel: "claude-opus-4-8",
+  localBaseUrl: "http://127.0.0.1:11434/v1",
+  localModel: "llama3.1:8b",
   zoteroBaseUrl: "http://127.0.0.1:23119",
   fileRoot: null,
 };
