@@ -17,8 +17,36 @@ fn eq_ci(a: &str, b: &str) -> bool {
     a.trim().eq_ignore_ascii_case(b.trim())
 }
 
+/// How many of the library's most-used tags the classifier prompt
+/// advertises as the preferred vocabulary.
+const TAG_VOCAB_SIZE: usize = 40;
+const MAX_SUGGESTED_TAGS: usize = 4;
+const MAX_TAG_LEN: usize = 50;
+
+/// The library's most-used tags, most frequent first (ties alphabetical).
+pub fn popular_tags(library: &Library, limit: usize) -> Vec<String> {
+    use std::collections::HashMap;
+    // Count case-insensitively but keep the first-seen casing for display.
+    let mut counts: HashMap<String, (String, usize)> = HashMap::new();
+    for item in &library.items {
+        for tag in &item.tags {
+            let t = tag.trim();
+            if t.is_empty() {
+                continue;
+            }
+            let entry = counts
+                .entry(t.to_lowercase())
+                .or_insert_with(|| (t.to_string(), 0));
+            entry.1 += 1;
+        }
+    }
+    let mut tags: Vec<(String, usize)> = counts.into_values().collect();
+    tags.sort_by(|a, b| b.1.cmp(&a.1).then_with(|| a.0.cmp(&b.0)));
+    tags.into_iter().take(limit).map(|(t, _)| t).collect()
+}
+
 /// Build the LLM request for one item, advertising every existing collection
-/// path except the Unclassified tree itself.
+/// path except the Unclassified tree itself, plus the tag vocabulary.
 pub fn build_request(item: &Item, library: &Library) -> ClassifyRequest {
     let existing_paths = library
         .all_paths()
@@ -33,7 +61,40 @@ pub fn build_request(item: &Item, library: &Library) -> ClassifyRequest {
         abstract_text: item.abstract_text.clone(),
         tags: item.tags.clone(),
         existing_paths,
+        existing_tags: popular_tags(library, TAG_VOCAB_SIZE),
     }
+}
+
+/// Clean up model-suggested tags: trim, drop empties/overlong ones, dedupe
+/// case-insensitively, skip tags the item already has, canonicalize casing
+/// to the library's existing vocabulary, cap the count.
+pub fn normalize_tags(raw: &[String], item: &Item, library: &Library) -> Vec<String> {
+    let vocab = popular_tags(library, usize::MAX);
+    let item_tags: Vec<String> = item.tags.iter().map(|t| t.trim().to_lowercase()).collect();
+    let mut seen: Vec<String> = Vec::new();
+    let mut out = Vec::new();
+    for raw_tag in raw {
+        let tag = raw_tag.trim();
+        if tag.is_empty() || tag.len() > MAX_TAG_LEN {
+            continue;
+        }
+        let lower = tag.to_lowercase();
+        if item_tags.contains(&lower) || seen.contains(&lower) {
+            continue;
+        }
+        // Adopt the library's exact casing when the tag already exists.
+        let canonical = vocab
+            .iter()
+            .find(|v| v.to_lowercase() == lower)
+            .cloned()
+            .unwrap_or_else(|| tag.to_string());
+        seen.push(lower);
+        out.push(canonical);
+        if out.len() == MAX_SUGGESTED_TAGS {
+            break;
+        }
+    }
+    out
 }
 
 /// Normalize and canonicalize a model-proposed path.
@@ -104,17 +165,18 @@ fn trim_rationale(raw: &str) -> String {
 }
 
 pub fn to_proposal(
-    item_key: &str,
+    item: &Item,
     resp: ClassifyResponse,
     library: &Library,
 ) -> Result<ClassificationProposal> {
     let (path, is_new) = normalize_response(&resp, library)?;
     Ok(ClassificationProposal {
-        item_key: item_key.to_string(),
+        item_key: item.key.clone(),
         proposed_path: path,
         is_new_collection: is_new,
         confidence: resp.confidence.clamp(0.0, 1.0),
         rationale: trim_rationale(&resp.rationale),
+        suggested_tags: normalize_tags(&resp.tags, item, library),
     })
 }
 

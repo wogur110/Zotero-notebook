@@ -56,6 +56,12 @@ failure.
   current collection. It is deliberately conservative: a paper is flagged
   only when *no* current collection fits, and you review every proposed
   move (current → suggested, with rationale) before anything changes.
+- **Zotero write-back** — value flows back into your library: fetched
+  abstracts fill empty Zotero abstract fields, classification suggests 2–4
+  tags (existing vocabulary preferred) that you approve per paper, and AI
+  summaries can be mirrored as Zotero child notes (updated in place) — so
+  the summaries are visible in Zotero even without this app. Everything is
+  additive; existing data is never overwritten. Toggles in Settings.
 - **Windows installer** (plus Linux/macOS builds) from CI.
 
 ## Install

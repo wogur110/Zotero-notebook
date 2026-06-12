@@ -164,6 +164,10 @@ pub struct ClassificationProposal {
     /// 0.0–1.0
     pub confidence: f64,
     pub rationale: String,
+    /// 2–4 AI-suggested tags (existing library vocabulary preferred); the
+    /// user picks which to apply in the review screen.
+    #[serde(default)]
+    pub suggested_tags: Vec<String>,
 }
 
 /// A user-approved (possibly edited) move.
@@ -177,6 +181,9 @@ pub struct ClassificationDecision {
     /// membership is always removed regardless.
     #[serde(default)]
     pub remove_collection_keys: Vec<String>,
+    /// User-approved AI tags to add to the Zotero item with this move.
+    #[serde(default)]
+    pub add_tags: Vec<String>,
 }
 
 /// Result of auditing one already-classified paper: a proposal to refile it.
@@ -258,6 +265,39 @@ pub struct StoredSummary {
     pub source: SummarySource,
 }
 
+/// Identifies the app's summary note among an item's child notes; the
+/// plugin updates the marked note in place instead of creating duplicates.
+/// Must match SUMMARY_NOTE_MARKER in zotero-plugin/bootstrap.js.
+pub const SUMMARY_NOTE_MARKER: &str = "AI Summary — Zotero Notebook";
+
+fn escape_html(s: &str) -> String {
+    s.replace('&', "&amp;")
+        .replace('<', "&lt;")
+        .replace('>', "&gt;")
+}
+
+impl StoredSummary {
+    /// The Zotero child-note representation of this summary. The heading
+    /// doubles as the upsert marker.
+    pub fn note_html(&self) -> String {
+        let source_label = match self.source {
+            SummarySource::Fulltext => "full text",
+            SummarySource::Abstract => "metadata + abstract",
+            SummarySource::Metadata => "title/venue only — may be inaccurate",
+        };
+        format!(
+            "<h2>{SUMMARY_NOTE_MARKER}</h2>\
+             <p>{}</p>\
+             <p><i>{} · {} · {} · based on {}</i></p>",
+            escape_html(&self.summary),
+            escape_html(&self.provider),
+            escape_html(&self.model),
+            escape_html(&self.created_at),
+            source_label,
+        )
+    }
+}
+
 /// One turn of the "Ask AI" conversation about a paper.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
@@ -311,6 +351,18 @@ pub struct AppSettings {
     /// When set, approved moves relocate files to
     /// `<file_root>/<collection path>/<filename>`.
     pub file_root: Option<String>,
+    /// Write fetched abstracts (Crossref/S2/OpenAlex) back into the Zotero
+    /// item's empty abstract field.
+    #[serde(default = "default_true")]
+    pub write_back_abstracts: bool,
+    /// Mirror every generated AI summary into a child note on the Zotero
+    /// item (updated in place on regeneration).
+    #[serde(default = "default_true")]
+    pub sync_summary_notes: bool,
+}
+
+fn default_true() -> bool {
+    true
 }
 
 impl Default for AppSettings {
@@ -323,6 +375,8 @@ impl Default for AppSettings {
             local_model: default_local_model(),
             zotero_base_url: "http://127.0.0.1:23119".into(),
             file_root: None,
+            write_back_abstracts: true,
+            sync_summary_notes: true,
         }
     }
 }

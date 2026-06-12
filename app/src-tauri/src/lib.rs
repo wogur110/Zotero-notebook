@@ -92,6 +92,31 @@ async fn fetch_library_any(s: &AppSettings) -> Result<Library> {
     }
 }
 
+/// `ensure_abstract` plus write-back: when an abstract was fetched online
+/// and the setting is on, fill the Zotero item's empty abstract field via
+/// the plugin (best-effort — the plugin never overwrites existing data).
+async fn ensure_abstract_synced(s: &AppSettings, item: &mut Item) -> bool {
+    let already_had = item
+        .abstract_text
+        .as_deref()
+        .is_some_and(|a| !a.trim().is_empty());
+    let has = ensure_abstract(item).await;
+    if has && !already_had && s.write_back_abstracts {
+        let client = plugin_api::PluginClient::new(&s.zotero_base_url);
+        match client
+            .update_item(&item.key, item.abstract_text.as_deref(), &[], None)
+            .await
+        {
+            Ok(r) if r.wrote_abstract => {
+                log::info!("wrote fetched abstract back to Zotero item {}", item.key)
+            }
+            Ok(_) => {}
+            Err(e) => log::warn!("abstract write-back for {} failed: {e}", item.key),
+        }
+    }
+    has
+}
+
 /// Fill a missing abstract from public metadata APIs (Crossref → Semantic
 /// Scholar → OpenAlex; best-effort, never errors). Returns whether the item
 /// has an abstract afterwards — the flag stored on summaries and surfaced
@@ -180,7 +205,7 @@ async fn do_summarize(
     } else {
         None
     };
-    let has_abstract = ensure_abstract(&mut item).await;
+    let has_abstract = ensure_abstract_synced(s, &mut item).await;
     let source = if body_excerpt.is_some() {
         SummarySource::Fulltext
     } else if has_abstract {
@@ -215,7 +240,34 @@ async fn do_summarize(
         let db = state.db.lock().expect("db mutex");
         db.upsert_summary(&summary)?;
     }
+    if s.sync_summary_notes {
+        let client = plugin_api::PluginClient::new(&s.zotero_base_url);
+        if let Err(e) = client
+            .update_item(item_key, None, &[], Some(&summary.note_html()))
+            .await
+        {
+            // Best-effort: a missing/old plugin must not fail summarization.
+            log::warn!("summary-note sync for {item_key} failed: {e}");
+        }
+    }
     Ok(summary)
+}
+
+/// Manual "Save to Zotero" for the stored summary (the automatic sync can
+/// be off, or the plugin may have been unavailable when it ran).
+#[tauri::command]
+async fn save_summary_note(state: State<'_, AppState>, item_key: String) -> Result<()> {
+    let s = state.settings();
+    let summary = {
+        let db = state.db.lock().expect("db mutex");
+        db.get_summary(&item_key)?
+    }
+    .ok_or_else(|| Error::Other("no summary to save — generate one first".into()))?;
+    let client = plugin_api::PluginClient::new(&s.zotero_base_url);
+    client
+        .update_item(&item_key, None, &[], Some(&summary.note_html()))
+        .await?;
+    Ok(())
 }
 
 #[tauri::command]
@@ -325,7 +377,7 @@ async fn chat_with_item(
     let llm = build_provider(provider, &s).await?;
 
     let body_excerpt = fetch_body_excerpt(&s, &item_key).await;
-    ensure_abstract(&mut item).await;
+    ensure_abstract_synced(&s, &mut item).await;
     let system = zn_core::llm::provider::chat_system_prompt(
         &item.title,
         &item.creators,
@@ -392,10 +444,10 @@ async fn classify_items(
             },
         );
         let outcome = async {
-            ensure_abstract(&mut item).await;
+            ensure_abstract_synced(&s, &mut item).await;
             let req = classify::build_request(&item, &library);
             let resp = llm.classify(&req).await?;
-            classify::to_proposal(key, resp, &library)
+            classify::to_proposal(&item, resp, &library)
         }
         .await;
         match outcome {
@@ -468,7 +520,7 @@ async fn audit_items(
         };
         emit(i, "running", Some(item.title.clone()));
         let outcome = async {
-            ensure_abstract(&mut item).await;
+            ensure_abstract_synced(&s, &mut item).await;
             let req = classify::build_audit_request(&item, &library)
                 .ok_or_else(|| Error::Other("not classified yet — use the Unclassified flow".into()))?;
             let resp = llm.audit(&req).await?;
@@ -555,6 +607,16 @@ async fn apply_classifications(
                 collection_key: None,
                 new_file_path: None,
             });
+        // Approved AI tags ride along with a successful move (additive;
+        // failures here are secondary and must not fail the move).
+        if result.ok && !d.add_tags.is_empty() {
+            if let Err(e) = client
+                .update_item(&d.item_key, None, &d.add_tags, None)
+                .await
+            {
+                log::warn!("tag write-back for {} failed: {e}", d.item_key);
+            }
+        }
         emit_progress(
             &app,
             "apply-progress",
@@ -728,6 +790,7 @@ pub fn run() {
             get_all_summaries,
             summarize_item,
             summarize_items,
+            save_summary_note,
             chat_with_item,
             classify_items,
             audit_items,

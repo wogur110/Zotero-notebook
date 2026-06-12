@@ -61,6 +61,8 @@ export interface ClassificationProposal {
   isNewCollection: boolean;
   confidence: number;
   rationale: string;
+  /** 2-4 AI-suggested tags; the user picks which to apply. */
+  suggestedTags: string[];
 }
 
 export interface ClassificationDecision {
@@ -68,6 +70,8 @@ export interface ClassificationDecision {
   targetPath: string[];
   /** Extra memberships to drop with the move (audit flow). */
   removeCollectionKeys?: string[];
+  /** Approved AI tags to add to the Zotero item with this move. */
+  addTags?: string[];
 }
 
 export interface AuditProposal {
@@ -118,6 +122,10 @@ export interface AppSettings {
   localBaseUrl: string;
   localModel: string;
   zoteroBaseUrl: string;
+  /** Write fetched abstracts into the Zotero item's empty abstract field. */
+  writeBackAbstracts: boolean;
+  /** Mirror AI summaries into a Zotero child note (updated in place). */
+  syncSummaryNotes: boolean;
   fileRoot: string | null;
 }
 

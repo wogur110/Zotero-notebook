@@ -407,3 +407,55 @@ async fn local_api_linked_file_relative_path_is_unresolvable() {
     assert_eq!(att.file_path, None, "attachments: paths cannot be resolved in fallback mode");
     assert_eq!(att.filename.as_deref(), Some("x.pdf"));
 }
+
+#[tokio::test]
+async fn plugin_update_item_sends_contract_body_and_parses_result() {
+    let server = MockServer::start().await;
+    Mock::given(method("POST"))
+        .and(path("/zotero-notebook/update-item"))
+        .and(body_partial_json(json!({
+            "itemKey": "ITEM0001",
+            "abstractIfEmpty": "An abstract.",
+            "addTags": ["diffusion models"],
+        })))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "ok": true,
+            "wroteAbstract": true,
+            "addedTags": ["diffusion models"],
+            "noteKey": null
+        })))
+        .expect(1)
+        .mount(&server)
+        .await;
+
+    let client = PluginClient::new(server.uri());
+    let result = client
+        .update_item(
+            "ITEM0001",
+            Some("An abstract."),
+            &["diffusion models".to_string()],
+            None,
+        )
+        .await
+        .unwrap();
+    assert!(result.wrote_abstract);
+    assert_eq!(result.added_tags, vec!["diffusion models"]);
+    assert!(result.note_key.is_none());
+}
+
+#[tokio::test]
+async fn plugin_update_item_missing_route_is_plugin_missing() {
+    let server = MockServer::start().await;
+    Mock::given(method("POST"))
+        .and(path("/zotero-notebook/update-item"))
+        .respond_with(ResponseTemplate::new(404).set_body_string("Not Found"))
+        .mount(&server)
+        .await;
+
+    let client = PluginClient::new(server.uri());
+    let err = client
+        .update_item("ITEM0001", None, &[], Some("<h2>AI Summary — Zotero Notebook</h2>"))
+        .await
+        .unwrap_err();
+    assert!(matches!(err, Error::PluginMissing), "got: {err}");
+}

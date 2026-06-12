@@ -58,6 +58,8 @@ const settings: AppSettings = {
   anthropicModel: "claude-opus-4-8",
   localBaseUrl: "http://127.0.0.1:11434/v1",
   localModel: "llama3.1:8b",
+  writeBackAbstracts: true,
+  syncSummaryNotes: true,
   zoteroBaseUrl: "http://127.0.0.1:23119",
   fileRoot: null,
 };

@@ -37,6 +37,7 @@ export default function SettingsView({ settings, status, onSave, onClose }: Prop
 
         <ProviderSection draft={draft} setDraft={setDraft} />
         <ZoteroSection draft={draft} setDraft={setDraft} status={status} />
+        <WriteBackSection draft={draft} setDraft={setDraft} />
         <FilesSection draft={draft} setDraft={setDraft} />
       </div>
 
@@ -330,6 +331,63 @@ function ProviderConfig({
 }
 
 // --- Zotero ------------------------------------------------------------
+
+function WriteBackSection({
+  draft,
+  setDraft,
+}: {
+  draft: AppSettings;
+  setDraft: (s: AppSettings) => void;
+}) {
+  const Toggle = ({
+    label,
+    hint,
+    checked,
+    onChange,
+  }: {
+    label: string;
+    hint: string;
+    checked: boolean;
+    onChange: (v: boolean) => void;
+  }) => (
+    <label className="flex cursor-pointer items-start gap-2.5">
+      <input
+        type="checkbox"
+        className="mt-0.5 h-4 w-4 shrink-0 accent-(--accent)"
+        checked={checked}
+        onChange={(e) => onChange(e.target.checked)}
+      />
+      <span>
+        <span className="block text-sm font-medium">{label}</span>
+        <span className="block text-xs text-muted">{hint}</span>
+      </span>
+    </label>
+  );
+
+  return (
+    <Section
+      title="Zotero write-back"
+      description="Feed app-derived data back into your Zotero library (always additive — existing data is never overwritten). Requires the companion plugin."
+    >
+      <Toggle
+        label="Fill empty abstracts"
+        hint="When an abstract is fetched from Crossref/Semantic Scholar/OpenAlex, write it into the Zotero item's empty abstract field."
+        checked={draft.writeBackAbstracts}
+        onChange={(v) => setDraft({ ...draft, writeBackAbstracts: v })}
+      />
+      <Toggle
+        label="Sync AI summaries as notes"
+        hint="Every generated summary becomes a child note on the Zotero item, updated in place on regeneration — visible in Zotero without this app."
+        checked={draft.syncSummaryNotes}
+        onChange={(v) => setDraft({ ...draft, syncSummaryNotes: v })}
+      />
+      <p className="text-xs text-faint">
+        AI tag suggestions are part of the classification review — approved
+        tags are written to Zotero with the move.
+      </p>
+    </Section>
+  );
+}
 
 function ZoteroSection({
   draft,

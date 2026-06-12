@@ -38,6 +38,7 @@ fn classify_req() -> ClassifyRequest {
         abstract_text: None,
         tags: vec!["diffusion".into()],
         existing_paths: vec![vec!["Computer Vision".into()]],
+        existing_tags: vec!["diffusion".into(), "vision".into()],
     }
 }
 

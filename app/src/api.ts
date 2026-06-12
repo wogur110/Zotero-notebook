@@ -45,6 +45,10 @@ export const summarizeItem = (
     useFulltext,
   });
 
+/** Push the stored summary into the item's Zotero child note. */
+export const saveSummaryNote = (itemKey: string) =>
+  invoke<void>("save_summary_note", { itemKey });
+
 /** One chat turn; the answer also streams via `onChatDelta`. */
 export const chatWithItem = (
   itemKey: string,

@@ -117,6 +117,45 @@ Errors: 400 (missing `itemKey`), 404 (unknown item) with `{"error": ...}`.
 
 ---
 
+## POST /zotero-notebook/update-item
+
+Write-back of app-derived data into the Zotero item. Every field is
+optional and independent; the endpoint is strictly **additive** — it never
+deletes or overwrites user data.
+
+**Request body**
+
+```json
+{
+  "itemKey": "ITEM0001",
+  "abstractIfEmpty": "We present high quality image synthesis...",
+  "addTags": ["diffusion models", "image synthesis"],
+  "summaryNoteHtml": "<h2>AI Summary — Zotero Notebook</h2><p>...</p>"
+}
+```
+
+- `abstractIfEmpty`: written to `abstractNote` **only when the field is
+  currently empty** — an existing abstract is never touched.
+- `addTags`: added to the item's tags; tags that already exist
+  (case-insensitive) are skipped, never removed.
+- `summaryNoteHtml`: upserted as a child note. The note is identified by
+  the marker text `AI Summary — Zotero Notebook` in its content: if a child
+  note containing the marker exists its content is replaced in place
+  (regenerating a summary never creates a second note); otherwise a new
+  child note is created. The caller must include the marker in the HTML.
+
+**200 response**
+
+```json
+{ "ok": true, "wroteAbstract": true, "addedTags": ["diffusion models"], "noteKey": "NOTE0001" }
+```
+
+`addedTags` lists only the tags actually added; `noteKey` is `null` when no
+note was requested. Errors: 400 (bad body), 404 (unknown item) with
+`{"error": ...}`.
+
+---
+
 ## POST /zotero-notebook/move-item
 
 Atomically reclassify one item: ensure the target collection path exists

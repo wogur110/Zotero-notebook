@@ -34,7 +34,13 @@ companion Zotero plugin.
    user edits/approves them in the review screen, then the app applies the
    approved moves one by one with per-item progress and per-item failure
    reporting. No background magic.
-4. **`core` is headless and fully testable.** Every external surface
+4. **Write-back is additive and best-effort.** Fetched abstracts fill only
+   *empty* Zotero abstract fields, AI tags are added never removed, and the
+   summary child note is updated in place (identified by the "AI Summary —
+   Zotero Notebook" marker). All write-back goes through the plugin's
+   `/update-item`; failures are logged, never block the primary action, and
+   both automatic paths (abstracts, summary notes) have Settings toggles.
+5. **`core` is headless and fully testable.** Every external surface
    (Zotero, plugin, Gemini, Anthropic) is reached through a configurable
    base URL, so `cargo test -p zn-core` exercises the real client code
    against mock HTTP servers — no Zotero install needed. This is how we test
@@ -53,6 +59,7 @@ string). The frontend mirror lives in `app/src/api.ts`.
 | `get_summary` | `itemKey` | `StoredSummary \| null` | From sidecar DB. |
 | `get_all_summaries` | — | `StoredSummary[]` | Whole sidecar table; powers search-over-summaries and the batch button's "N without a summary" count. |
 | `summarize_items` | `itemKeys: string[]`, `provider?` | `StoredSummary[]` | Batch quick-summarize (metadata+abstract only); sequential, emits `summarize-progress`, per-item failures don't abort. |
+| `save_summary_note` | `itemKey` | — | Manual "Save to Zotero": pushes the stored summary as a child note via plugin `/update-item` (upserted in place by marker). |
 | `summarize_item` | `itemKey`, `provider?`, `useFulltext?` | `StoredSummary` | Default: metadata+abstract prompt (cheap). `useFulltext: true` (a separate UI button) additionally sends up to 80k chars of the PDF's extracted text via the plugin. The result records its `source` (fulltext/abstract/metadata) for the UI badge. |
 | `chat_with_item` | `itemKey`, `history: ChatMessage[]`, `provider?` | `string` | Per-paper "Ask AI" chat. Context = metadata + extracted PDF text (80k cap, plugin `/fulltext`). Streams fragments as `chat-delta` events (`ChatDelta`), resolves with the full answer. Answers always in English. |
 | `classify_items` | `itemKeys: string[]`, `provider?` | `ClassificationProposal[]` | Sequential; emits `classify-progress` (`ProgressEvent`) per item. |

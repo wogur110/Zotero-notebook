@@ -49,6 +49,10 @@ pub struct ClassifyRequest {
     /// Existing collection paths, root → leaf (the "Unclassified" collection
     /// itself is excluded by the caller).
     pub existing_paths: Vec<Vec<String>>,
+    /// The library's most-used tags, advertised so suggestions reuse the
+    /// established vocabulary instead of inventing near-duplicates.
+    #[serde(default)]
+    pub existing_tags: Vec<String>,
 }
 
 /// What the model must return for a classify call. Clients enforce this
@@ -64,6 +68,10 @@ pub struct ClassifyResponse {
     /// 0.0–1.0
     pub confidence: f64,
     pub rationale: String,
+    /// 2–4 suggested tags (existing vocabulary preferred). Default for
+    /// lenient parsing when a model omits the field.
+    #[serde(default)]
+    pub tags: Vec<String>,
 }
 
 /// Audit of an already-classified paper: is its current filing appropriate?
@@ -105,9 +113,14 @@ pub fn classify_schema() -> serde_json::Value {
             },
             "is_new": { "type": "boolean" },
             "confidence": { "type": "number" },
-            "rationale": { "type": "string" }
+            "rationale": { "type": "string" },
+            "tags": {
+                "type": "array",
+                "items": { "type": "string" },
+                "description": "2-4 suggested tags, preferring the library's existing tags"
+            }
         },
-        "required": ["path", "is_new", "confidence", "rationale"],
+        "required": ["path", "is_new", "confidence", "rationale", "tags"],
         "additionalProperties": false
     })
 }
@@ -234,11 +247,16 @@ pub fn classify_prompt(req: &ClassifyRequest) -> String {
     } else {
         format!("Tags: {}\n", req.tags.join(", "))
     };
+    let tag_vocab = if req.existing_tags.is_empty() {
+        "(no tags exist yet)".to_string()
+    } else {
+        req.existing_tags.join(", ")
+    };
     format!(
         "You are organizing a researcher's paper library. Assign the paper\n\
-         below to exactly one collection.\n\n\
+         below to exactly one collection, and suggest tags for it.\n\n\
          Existing collections (full nested paths):\n{paths}\n\n\
-         Rules:\n\
+         Collection rules:\n\
          1. STRONGLY prefer an existing collection. Choose the most specific\n\
             path that genuinely fits.\n\
          2. Only when no existing collection fits, propose a new one. A new\n\
@@ -248,6 +266,14 @@ pub fn classify_prompt(req: &ClassifyRequest) -> String {
          3. Never propose a path deeper than 3 levels, and never invent more\n\
             than one new level at a time.\n\
          4. Do not use \"Unclassified\" as a target.\n\n\
+         Tag rules:\n\
+         5. Suggest 2 to 4 topical tags for the paper.\n\
+         6. STRONGLY prefer reusing tags from the library's existing\n\
+            vocabulary below (exact spelling). Propose a new tag only when\n\
+            no existing tag describes the topic; new tags should be short,\n\
+            lowercase, and specific. Do not repeat tags the paper already\n\
+            has.\n\n\
+         Existing tags in the library:\n{tag_vocab}\n\n\
          Paper:\n{meta}{tags}",
         meta = meta_block(
             &req.title,

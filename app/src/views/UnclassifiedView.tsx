@@ -35,6 +35,8 @@ interface ReviewRow {
   path: string[];
   checked: boolean;
   expanded: boolean;
+  /** AI-suggested tags with their per-row approval state (default on). */
+  tags: { name: string; on: boolean }[];
 }
 
 interface FailedRow {
@@ -99,6 +101,7 @@ export default function UnclassifiedView({
           path: p.proposedPath,
           checked: true,
           expanded: false,
+          tags: (p.suggestedTags ?? []).map((name) => ({ name, on: true })),
         })),
       );
       setFailures(errors);
@@ -126,7 +129,11 @@ export default function UnclassifiedView({
     unlistenRef.current.push(un);
     try {
       const res = await api.applyClassifications(
-        selected.map((r) => ({ itemKey: r.proposal.itemKey, targetPath: r.path })),
+        selected.map((r) => ({
+          itemKey: r.proposal.itemKey,
+          targetPath: r.path,
+          addTags: r.tags.filter((t) => t.on).map((t) => t.name),
+        })),
       );
       if (runIdRef.current !== runId) return;
       setResults(res);
@@ -248,6 +255,45 @@ export default function UnclassifiedView({
                     />
                   </button>
                 </div>
+                {row.tags.length > 0 && (
+                  <div className="mt-2 flex flex-wrap items-center gap-1.5 pl-7">
+                    <span className="text-[11px] font-semibold uppercase tracking-wider text-faint">
+                      Tags
+                    </span>
+                    {row.tags.map((t, ti) => (
+                      <button
+                        key={t.name}
+                        aria-pressed={t.on}
+                        title={
+                          t.on
+                            ? "Will be added as a Zotero tag — click to skip"
+                            : "Skipped — click to add"
+                        }
+                        onClick={() =>
+                          setRows((rs) =>
+                            rs.map((r, i) =>
+                              i === idx
+                                ? {
+                                    ...r,
+                                    tags: r.tags.map((tt, tj) =>
+                                      tj === ti ? { ...tt, on: !tt.on } : tt,
+                                    ),
+                                  }
+                                : r,
+                            ),
+                          )
+                        }
+                        className={`badge cursor-pointer transition-colors ${
+                          t.on
+                            ? "bg-accent-soft text-accent"
+                            : "bg-inset text-faint line-through"
+                        }`}
+                      >
+                        {t.name}
+                      </button>
+                    ))}
+                  </div>
+                )}
                 {row.expanded && (
                   <p className="mt-2 rounded-md bg-inset px-3 py-2 text-xs leading-relaxed text-muted">
                     {row.proposal.rationale || "No rationale provided."}

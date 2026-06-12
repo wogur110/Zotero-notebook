@@ -125,9 +125,14 @@ impl GeminiClient {
                 },
                 "is_new": { "type": "BOOLEAN" },
                 "confidence": { "type": "NUMBER" },
-                "rationale": { "type": "STRING" }
+                "rationale": { "type": "STRING" },
+                "tags": {
+                    "type": "ARRAY",
+                    "items": { "type": "STRING" },
+                    "description": "2-4 suggested tags, preferring the library's existing tags"
+                }
             },
-            "required": ["path", "is_new", "confidence", "rationale"]
+            "required": ["path", "is_new", "confidence", "rationale", "tags"]
         });
         let body = json!({
             "contents": [{ "parts": [{ "text": classify_prompt(req) }] }],

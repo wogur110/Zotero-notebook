@@ -6,6 +6,7 @@ import { collectionPath, formatAuthors, pathLabel } from "../lib/library";
 import ChatPanel from "./ChatPanel";
 import {
   IconAlert,
+  IconCheck,
   IconExternalLink,
   IconFileText,
   IconFolderOpen,
@@ -294,6 +295,20 @@ function SummarySection({
   const [loading, setLoading] = useState(true);
   const [generating, setGenerating] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [noteState, setNoteState] = useState<"idle" | "saving" | "saved">("idle");
+
+  const saveNote = async () => {
+    setNoteState("saving");
+    setError(null);
+    try {
+      await api.saveSummaryNote(item.key);
+      setNoteState("saved");
+      setTimeout(() => setNoteState("idle"), 2000);
+    } catch (e) {
+      setNoteState("idle");
+      setError(api.errorMessage(e));
+    }
+  };
 
   useEffect(() => {
     let cancelled = false;
@@ -352,6 +367,26 @@ function SummarySection({
               onClick={() => void generate(true)}
             >
               <IconFileText size={12} /> From full text
+            </button>
+            <button
+              className="btn-ghost py-0.5! text-xs"
+              title="Save this summary as a child note on the Zotero item (updates the existing note in place)"
+              disabled={noteState === "saving"}
+              onClick={() => void saveNote()}
+            >
+              {noteState === "saved" ? (
+                <>
+                  <IconCheck size={12} /> Saved
+                </>
+              ) : noteState === "saving" ? (
+                <>
+                  <IconLoader size={12} /> Saving…
+                </>
+              ) : (
+                <>
+                  <IconExternalLink size={12} /> Save to Zotero
+                </>
+              )}
             </button>
           </>
         )}

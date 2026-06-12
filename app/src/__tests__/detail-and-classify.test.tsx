@@ -6,6 +6,7 @@ vi.mock("../api", () => ({
   getSummary: vi.fn(async () => null),
   chatWithItem: vi.fn(async () => "The main contribution is the DDPM framework."),
   onChatDelta: vi.fn(async () => () => {}),
+  saveSummaryNote: vi.fn(async () => {}),
   summarizeItem: vi.fn(async () => ({
     itemKey: "I1",
     summary: "A generated summary of the paper.",
@@ -21,6 +22,7 @@ vi.mock("../api", () => ({
       isNewCollection: false,
       confidence: 0.9,
       rationale: "Clearly a vision paper.",
+      suggestedTags: ["diffusion models", "image synthesis"],
     },
     {
       itemKey: "I2",
@@ -28,6 +30,7 @@ vi.mock("../api", () => ({
       isNewCollection: true,
       confidence: 0.4,
       rationale: "Nothing existing fits.",
+      suggestedTags: [],
     },
   ]),
   applyClassifications: vi.fn(async () => [
@@ -208,13 +211,21 @@ describe("UnclassifiedView classify flow", () => {
     expect(screen.getByText("Second paper")).toBeInTheDocument();
     expect(api.classifyItems).toHaveBeenCalledWith(["I1", "I2"], "gemini");
 
+    // Suggested tags render as toggleable chips; skip the first one.
+    expect(screen.getByText("image synthesis")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "diffusion models" }));
+
     // Untick the second proposal — only the first should be applied.
     fireEvent.click(screen.getByLabelText("Include Second paper"));
     fireEvent.click(screen.getByRole("button", { name: /Apply 1 move/ }));
 
     await screen.findByText(/1 paper classified/);
     expect(api.applyClassifications).toHaveBeenCalledWith([
-      { itemKey: "I1", targetPath: ["Computer Vision"] },
+      {
+        itemKey: "I1",
+        targetPath: ["Computer Vision"],
+        addTags: ["image synthesis"],
+      },
     ]);
 
     fireEvent.click(screen.getByRole("button", { name: "Back to library" }));

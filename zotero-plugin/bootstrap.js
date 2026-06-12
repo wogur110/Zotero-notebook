@@ -194,6 +194,124 @@ async function buildLibraryPayload() {
 }
 
 // ---------------------------------------------------------------------
+// Write-back (update-item)
+// ---------------------------------------------------------------------
+
+const SUMMARY_NOTE_MARKER = "AI Summary \u2014 Zotero Notebook";
+
+/**
+ * Additive write-back of app-derived data. Never deletes or overwrites
+ * user data: abstract only fills an empty field, tags are added (existing
+ * ones skipped), and the summary note is updated in place when one with
+ * the marker already exists.
+ */
+async function updateItem(body) {
+  if (!body || typeof body !== "object") {
+    return jsonError(400, "request body must be a JSON object");
+  }
+  const { itemKey, abstractIfEmpty, addTags, summaryNoteHtml } = body;
+  if (typeof itemKey !== "string" || !itemKey.trim()) {
+    return jsonError(400, "itemKey must be a non-empty string");
+  }
+  if (abstractIfEmpty != null && typeof abstractIfEmpty !== "string") {
+    return jsonError(400, "abstractIfEmpty must be a string");
+  }
+  if (
+    addTags != null &&
+    (!Array.isArray(addTags) || addTags.some((t) => typeof t !== "string"))
+  ) {
+    return jsonError(400, "addTags must be an array of strings");
+  }
+  if (summaryNoteHtml != null && typeof summaryNoteHtml !== "string") {
+    return jsonError(400, "summaryNoteHtml must be a string");
+  }
+
+  const libraryID = Zotero.Libraries.userLibraryID;
+  const item = Zotero.Items.getByLibraryAndKey(libraryID, itemKey.trim());
+  if (!item || !item.isRegularItem()) {
+    return jsonError(404, "no item with key '" + itemKey + "' in the user library");
+  }
+
+  let wroteAbstract = false;
+  const addedTags = [];
+  let noteKey = null;
+
+  // 1. Abstract \u2014 fill only when empty.
+  if (
+    typeof abstractIfEmpty === "string" &&
+    abstractIfEmpty.trim() &&
+    !getFieldOrNull(item, "abstractNote")
+  ) {
+    item.setField("abstractNote", abstractIfEmpty.trim());
+    wroteAbstract = true;
+  }
+
+  // 2. Tags \u2014 additive, case-insensitive dedupe against existing tags.
+  if (Array.isArray(addTags) && addTags.length) {
+    const existing = new Set(
+      item.getTags().map((t) => t.tag.trim().toLowerCase())
+    );
+    for (const raw of addTags) {
+      const tag = String(raw).trim();
+      if (!tag || existing.has(tag.toLowerCase())) continue;
+      item.addTag(tag);
+      existing.add(tag.toLowerCase());
+      addedTags.push(tag);
+    }
+  }
+
+  if (wroteAbstract || addedTags.length) {
+    await item.saveTx();
+  }
+
+  // 3. Summary note \u2014 update in place (marker match) or create.
+  if (typeof summaryNoteHtml === "string" && summaryNoteHtml.trim()) {
+    if (!summaryNoteHtml.includes(SUMMARY_NOTE_MARKER)) {
+      return jsonError(
+        400,
+        "summaryNoteHtml must contain the marker '" + SUMMARY_NOTE_MARKER + "'"
+      );
+    }
+    let note = null;
+    for (const noteID of item.getNotes()) {
+      const candidate = Zotero.Items.get(noteID);
+      if (candidate && candidate.getNote().includes(SUMMARY_NOTE_MARKER)) {
+        note = candidate;
+        break;
+      }
+    }
+    if (!note) {
+      note = new Zotero.Item("note");
+      note.libraryID = libraryID;
+      note.parentKey = item.key;
+    }
+    note.setNote(summaryNoteHtml);
+    await note.saveTx();
+    noteKey = note.key;
+  }
+
+  return jsonResponse(200, { ok: true, wroteAbstract, addedTags, noteKey });
+}
+
+function makeUpdateItemEndpoint() {
+  const Endpoint = function () {};
+  Endpoint.prototype = {
+    supportedMethods: ["POST"],
+    supportedDataTypes: ["application/json"],
+    permitBookmarklet: false,
+    init: async function (requestData) {
+      try {
+        return await updateItem(requestData.data);
+      } catch (e) {
+        debug("update-item endpoint failed: " + e + "\n" + (e && e.stack));
+        return jsonError(500, "update failed: " + (e.message || e));
+      }
+    },
+  };
+  return Endpoint;
+}
+
+// ---------------------------------------------------------------------
 // Full text
 // ---------------------------------------------------------------------
 
@@ -570,6 +688,7 @@ function startup({ version }) {
     "/zotero-notebook/ping": makePingEndpoint(),
     "/zotero-notebook/library": makeLibraryEndpoint(),
     "/zotero-notebook/move-item": makeMoveItemEndpoint(),
+    "/zotero-notebook/update-item": makeUpdateItemEndpoint(),
     "/zotero-notebook/fulltext": makeFulltextEndpoint(),
   };
   for (const [path, endpoint] of Object.entries(endpoints)) {

@@ -60,6 +60,19 @@ pub struct Fulltext {
     pub truncated: bool,
 }
 
+/// Result of an additive write-back (`/zotero-notebook/update-item`).
+#[derive(Debug, Clone, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct UpdateItemResult {
+    pub ok: bool,
+    #[serde(default)]
+    pub wrote_abstract: bool,
+    #[serde(default)]
+    pub added_tags: Vec<String>,
+    #[serde(default)]
+    pub note_key: Option<String>,
+}
+
 #[derive(Deserialize)]
 struct FulltextResponse {
     text: Option<String>,
@@ -178,6 +191,40 @@ impl PluginClient {
                 chars: parsed.chars,
                 truncated: parsed.truncated,
             }))
+    }
+
+    /// Additive write-back: fill an empty abstract, add tags, and/or upsert
+    /// the AI-summary child note. Never overwrites user data (see
+    /// docs/PLUGIN_API.md). Errors map like move_item; a pre-1.3 plugin
+    /// without the route surfaces as `Error::PluginMissing`.
+    pub async fn update_item(
+        &self,
+        item_key: &str,
+        abstract_if_empty: Option<&str>,
+        add_tags: &[String],
+        summary_note_html: Option<&str>,
+    ) -> Result<UpdateItemResult> {
+        let url = format!("{}/zotero-notebook/update-item", self.base_url);
+        let body = serde_json::json!({
+            "itemKey": item_key,
+            "abstractIfEmpty": abstract_if_empty,
+            "addTags": add_tags,
+            "summaryNoteHtml": summary_note_html,
+        });
+        let resp = self
+            .http
+            .post(&url)
+            .json(&body)
+            .send()
+            .await
+            .map_err(|e| self.offline(e))?;
+        let status = resp.status();
+        let text = resp.text().await.map_err(Error::Http)?;
+        if !status.is_success() {
+            return Err(self.classify_error(status.as_u16(), &text));
+        }
+        serde_json::from_str(&text)
+            .map_err(|e| Error::InvalidResponse(format!("update-item payload: {e}")))
     }
 
     pub async fn move_item(

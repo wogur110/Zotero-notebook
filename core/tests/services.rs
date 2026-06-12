@@ -55,6 +55,7 @@ fn resp(path: &[&str], is_new: bool) -> ClassifyResponse {
         is_new,
         confidence: 0.8,
         rationale: "because".into(),
+        tags: vec![],
     }
 }
 
@@ -121,7 +122,7 @@ fn proposal_clamps_confidence_and_truncates_rationale() {
     let mut r = resp(&["NLP"], false);
     r.confidence = 7.5;
     r.rationale = "x".repeat(1000);
-    let p = to_proposal("I1", r, &lib).unwrap();
+    let p = to_proposal(&lib.items[0], r, &lib).unwrap();
     assert!((p.confidence - 1.0).abs() < 1e-9);
     assert!(p.rationale.len() <= 504, "truncated with ellipsis");
     assert!(!p.is_new_collection);
@@ -342,4 +343,62 @@ fn db_all_summaries_lists_every_row() {
     assert_eq!(all.len(), 2);
     assert_eq!(all[0].item_key, "A");
     assert_eq!(all[1].source, SummarySource::Fulltext);
+}
+
+#[test]
+fn tag_suggestions_are_normalized_against_the_library() {
+    use zn_core::classify::normalize_tags;
+    let mut lib = library();
+    // Library vocabulary: "Diffusion Models" (existing casing), on another item.
+    lib.items.push(item("I2", "Other paper"));
+    lib.items[1].tags = vec!["Diffusion Models".into(), "vision".into()];
+    // The paper being classified already has "vision".
+    lib.items[0].tags = vec!["vision".into()];
+
+    let raw = vec![
+        "diffusion models".to_string(), // exists in vocab → adopt exact casing
+        "VISION".to_string(),           // item already has it → skipped
+        "  ".to_string(),               // empty → skipped
+        "diffusion models".to_string(), // duplicate → skipped
+        "score matching".to_string(),   // new tag → kept as written
+        "extra-1".to_string(),
+        "extra-2".to_string(),
+        "extra-3".to_string(),          // over the cap of 4 → dropped
+    ];
+    let tags = normalize_tags(&raw, &lib.items[0], &lib);
+    assert_eq!(
+        tags,
+        vec!["Diffusion Models", "score matching", "extra-1", "extra-2"]
+    );
+}
+
+#[test]
+fn popular_tags_ranked_by_frequency() {
+    use zn_core::classify::popular_tags;
+    let mut lib = library();
+    lib.items.push(item("I2", "B"));
+    lib.items.push(item("I3", "C"));
+    lib.items[0].tags = vec!["nlp".into(), "rare".into()];
+    lib.items[1].tags = vec!["NLP".into()]; // case-insensitive merge
+    lib.items[2].tags = vec!["nlp".into()];
+    let tags = popular_tags(&lib, 10);
+    assert_eq!(tags[0], "nlp", "most frequent first, first-seen casing kept");
+    assert!(tags.contains(&"rare".to_string()));
+}
+
+#[test]
+fn summary_note_html_escapes_and_carries_marker() {
+    use zn_core::models::SUMMARY_NOTE_MARKER;
+    let s = StoredSummary {
+        item_key: "K".into(),
+        summary: "Shows a < b & c > d.".into(),
+        provider: "anthropic".into(),
+        model: "claude-opus-4-8".into(),
+        created_at: "2026-06-11T00:00:00Z".into(),
+        source: SummarySource::Fulltext,
+    };
+    let html = s.note_html();
+    assert!(html.contains(SUMMARY_NOTE_MARKER));
+    assert!(html.contains("a &lt; b &amp; c &gt; d"), "summary text escaped");
+    assert!(html.contains("based on full text"));
 }
