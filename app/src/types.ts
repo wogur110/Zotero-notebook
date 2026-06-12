@@ -94,6 +94,11 @@ export interface StoredSummary {
   provider: string;
   model: string;
   createdAt: string;
+  /**
+   * Whether the prompt included an abstract (from Zotero or fetched from
+   * Crossref/Semantic Scholar/OpenAlex). False = title/venue only.
+   */
+  hadAbstract: boolean;
 }
 
 export interface AppSettings {

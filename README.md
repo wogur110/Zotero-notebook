@@ -124,5 +124,8 @@ npm run tauri build        # produce installers locally
 - Moves and classification require the companion plugin (read-only mode
   without it).
 - Summaries are metadata-based (title/venue/abstract) — PDF text is not
-  parsed yet.
+  parsed yet. When a paper has no abstract in Zotero, the app fetches one
+  from Crossref → Semantic Scholar → OpenAlex (free, no key); if none is
+  found, the summary is generated from the title/venue alone and flagged
+  with a "No abstract" badge.
 - User library only; group libraries are not supported yet.

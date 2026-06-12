@@ -28,6 +28,7 @@ pub mod llm {
     pub use provider::{AnyProvider, ClassifyRequest, ClassifyResponse, SummarizeRequest};
 }
 
+pub mod abstract_lookup;
 pub mod classify;
 pub mod db;
 pub mod keychain;

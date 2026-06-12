@@ -10,6 +10,7 @@ vi.mock("../api", () => ({
     provider: "anthropic",
     model: "claude-opus-4-8",
     createdAt: "2026-06-11T00:00:00Z",
+    hadAbstract: false,
   })),
   classifyItems: vi.fn(async () => [
     {
@@ -101,6 +102,10 @@ describe("ItemDetailModal", () => {
       ).toBeInTheDocument(),
     );
     expect(api.summarizeItem).toHaveBeenCalledWith("I1", "anthropic");
+    // hadAbstract: false in the mock → metadata-only warning badge.
+    expect(
+      screen.getByText(/No abstract — title\/venue only/),
+    ).toBeInTheDocument();
   });
 
   it("reveals the file in the file manager", async () => {

@@ -203,6 +203,10 @@ pub struct MoveResult {
     pub new_file_path: Option<String>,
 }
 
+fn default_true() -> bool {
+    true
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub struct StoredSummary {
@@ -212,6 +216,13 @@ pub struct StoredSummary {
     pub model: String,
     /// RFC 3339.
     pub created_at: String,
+    /// Whether the prompt that produced this summary included an abstract
+    /// (from Zotero or fetched from Crossref/Semantic Scholar/OpenAlex).
+    /// When false the summary is based on title/venue only — the UI flags
+    /// it as potentially inaccurate. Defaults to true for rows written
+    /// before this field existed.
+    #[serde(default = "default_true")]
+    pub had_abstract: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]

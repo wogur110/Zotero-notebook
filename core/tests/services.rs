@@ -230,20 +230,51 @@ fn db_upsert_get_and_overwrite() {
         provider: "gemini".into(),
         model: "gemini-2.5-pro".into(),
         created_at: "2026-06-11T00:00:00Z".into(),
+        had_abstract: false,
     };
     db.upsert_summary(&first).unwrap();
-    assert_eq!(db.get_summary("K1").unwrap().unwrap().summary, "First summary.");
+    let stored = db.get_summary("K1").unwrap().unwrap();
+    assert_eq!(stored.summary, "First summary.");
+    assert!(!stored.had_abstract, "metadata-only flag round-trips");
 
     let second = StoredSummary {
         summary: "Regenerated with Claude.".into(),
         provider: "anthropic".into(),
         model: "claude-opus-4-8".into(),
+        had_abstract: true,
         ..first
     };
     db.upsert_summary(&second).unwrap();
     let stored = db.get_summary("K1").unwrap().unwrap();
     assert_eq!(stored.summary, "Regenerated with Claude.");
     assert_eq!(stored.provider, "anthropic");
+    assert!(stored.had_abstract);
+}
+
+/// A summaries.sqlite created before the had_abstract column existed must
+/// upgrade in place, with old rows defaulting to had_abstract = true.
+#[test]
+fn db_migrates_pre_1_0_schema() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("summaries.sqlite");
+    {
+        let conn = rusqlite::Connection::open(&path).unwrap();
+        conn.execute_batch(
+            "CREATE TABLE summaries (
+                item_key   TEXT PRIMARY KEY,
+                summary    TEXT NOT NULL,
+                provider   TEXT NOT NULL,
+                model      TEXT NOT NULL,
+                created_at TEXT NOT NULL
+            );
+            INSERT INTO summaries VALUES ('OLD', 'legacy summary', 'gemini', 'm', 't');",
+        )
+        .unwrap();
+    }
+    let db = Db::open(&path).unwrap();
+    let row = db.get_summary("OLD").unwrap().unwrap();
+    assert_eq!(row.summary, "legacy summary");
+    assert!(row.had_abstract, "legacy rows default to true (no warning badge)");
 }
 
 #[test]
@@ -257,6 +288,7 @@ fn db_open_on_disk_creates_parents() {
         provider: "gemini".into(),
         model: "m".into(),
         created_at: "t".into(),
+        had_abstract: true,
     })
     .unwrap();
     assert!(path.exists());

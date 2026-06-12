@@ -74,6 +74,29 @@ async fn fetch_library_any(s: &AppSettings) -> Result<Library> {
     }
 }
 
+/// Fill a missing abstract from public metadata APIs (Crossref → Semantic
+/// Scholar → OpenAlex; best-effort, never errors). Returns whether the item
+/// has an abstract afterwards — the flag stored on summaries and surfaced
+/// as a "metadata only" badge in the UI.
+async fn ensure_abstract(item: &mut Item) -> bool {
+    if item
+        .abstract_text
+        .as_deref()
+        .is_some_and(|a| !a.trim().is_empty())
+    {
+        return true;
+    }
+    let sources = zn_core::abstract_lookup::Sources::default();
+    match zn_core::abstract_lookup::lookup(&sources, item.doi.as_deref(), &item.title).await {
+        Some(found) => {
+            log::info!("fetched missing abstract for {}", item.key);
+            item.abstract_text = Some(found);
+            true
+        }
+        None => false,
+    }
+}
+
 fn find_item(library: &Library, item_key: &str) -> Result<Item> {
     library
         .items
@@ -117,8 +140,9 @@ async fn summarize_item(
 ) -> Result<StoredSummary> {
     let s = state.settings();
     let library = fetch_library_any(&s).await?;
-    let item = find_item(&library, &item_key)?;
+    let mut item = find_item(&library, &item_key)?;
     let llm = build_provider(provider, &s).await?;
+    let had_abstract = ensure_abstract(&mut item).await;
     let req = SummarizeRequest {
         title: item.title.clone(),
         creators: item.creators.clone(),
@@ -137,6 +161,7 @@ async fn summarize_item(
         provider: llm.id().as_str().to_string(),
         model,
         created_at: chrono::Utc::now().to_rfc3339(),
+        had_abstract,
     };
     {
         let db = state.db.lock().expect("db mutex");
@@ -159,7 +184,7 @@ async fn classify_items(
     let mut proposals = Vec::new();
 
     for (i, key) in item_keys.iter().enumerate() {
-        let item = match find_item(&library, key) {
+        let mut item = match find_item(&library, key) {
             Ok(it) => it,
             Err(e) => {
                 emit_progress(
@@ -188,6 +213,7 @@ async fn classify_items(
             },
         );
         let outcome = async {
+            ensure_abstract(&mut item).await;
             let req = classify::build_request(&item, &library);
             let resp = llm.classify(&req).await?;
             classify::to_proposal(key, resp, &library)
@@ -254,7 +280,7 @@ async fn audit_items(
                 },
             );
         };
-        let item = match find_item(&library, key) {
+        let mut item = match find_item(&library, key) {
             Ok(it) => it,
             Err(e) => {
                 emit(i + 1, "error", Some(e.to_string()));
@@ -263,6 +289,7 @@ async fn audit_items(
         };
         emit(i, "running", Some(item.title.clone()));
         let outcome = async {
+            ensure_abstract(&mut item).await;
             let req = classify::build_audit_request(&item, &library)
                 .ok_or_else(|| Error::Other("not classified yet — use the Unclassified flow".into()))?;
             let resp = llm.audit(&req).await?;

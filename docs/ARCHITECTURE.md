@@ -75,6 +75,11 @@ trait objects, no async_trait).
 
 - **Summarize**: metadata-only prompt (title, authors, venue, year,
   abstract). 5–8 sentence English summary. PDFs are never uploaded.
+  Missing abstracts are backfilled best-effort from Crossref → Semantic
+  Scholar → OpenAlex (`core/src/abstract_lookup.rs`, key-less public APIs)
+  before any summarize/classify/audit call; summaries generated with no
+  abstract at all are stored with `had_abstract = false` and badged in the
+  UI as title/venue-only.
 - **Classify**: prompt contains the item metadata **and** the existing
   collection tree (as `A / B / C` paths). The model must prefer an existing
   path and may propose a new one only when nothing fits; structured JSON

@@ -4,6 +4,7 @@ import * as api from "../api";
 import type { Item, Library, ProviderId, StoredSummary } from "../types";
 import { collectionPath, formatAuthors, pathLabel } from "../lib/library";
 import {
+  IconAlert,
   IconExternalLink,
   IconFileText,
   IconFolderOpen,
@@ -298,9 +299,19 @@ function SummarySection({
       ) : summary ? (
         <>
           <p className="text-sm leading-relaxed">{summary.summary}</p>
-          <p className="mt-2 text-xs text-faint">
-            {summary.provider} · {summary.model} ·{" "}
-            {new Date(summary.createdAt).toLocaleString()}
+          <p className="mt-2 flex flex-wrap items-center gap-2 text-xs text-faint">
+            <span>
+              {summary.provider} · {summary.model} ·{" "}
+              {new Date(summary.createdAt).toLocaleString()}
+            </span>
+            {!summary.hadAbstract && (
+              <span
+                className="badge bg-warn-soft text-warn"
+                title="No abstract was available in Zotero or from Crossref/Semantic Scholar/OpenAlex, so this summary is based on the title and venue only. Treat specifics with caution."
+              >
+                <IconAlert size={11} /> No abstract — title/venue only
+              </span>
+            )}
           </p>
         </>
       ) : (
