@@ -163,22 +163,20 @@ async fn fetch_body_excerpt(s: &AppSettings, item_key: &str) -> Option<String> {
     }
 }
 
-#[tauri::command]
-async fn summarize_item(
-    state: State<'_, AppState>,
-    item_key: String,
-    provider: Option<ProviderId>,
-    use_fulltext: Option<bool>,
+/// Summarize one item and persist the result. Shared by the single-item
+/// command and the batch loop. The cheap metadata+abstract summary is the
+/// default; reading the whole PDF is an explicit, separate action.
+async fn do_summarize(
+    state: &State<'_, AppState>,
+    s: &AppSettings,
+    llm: &AnyProvider,
+    library: &Library,
+    item_key: &str,
+    use_fulltext: bool,
 ) -> Result<StoredSummary> {
-    let s = state.settings();
-    let library = fetch_library_any(&s).await?;
-    let mut item = find_item(&library, &item_key)?;
-    let llm = build_provider(provider, &s).await?;
-
-    // The cheap metadata+abstract summary is the default; reading the whole
-    // PDF is an explicit, separate action (it costs real tokens).
-    let body_excerpt = if use_fulltext.unwrap_or(false) {
-        fetch_body_excerpt(&s, &item_key).await
+    let mut item = find_item(library, item_key)?;
+    let body_excerpt = if use_fulltext {
+        fetch_body_excerpt(s, item_key).await
     } else {
         None
     };
@@ -206,7 +204,7 @@ async fn summarize_item(
         ProviderId::Local => s.local_model.clone(),
     };
     let summary = StoredSummary {
-        item_key: item_key.clone(),
+        item_key: item_key.to_string(),
         summary: text,
         provider: llm.id().as_str().to_string(),
         model,
@@ -218,6 +216,93 @@ async fn summarize_item(
         db.upsert_summary(&summary)?;
     }
     Ok(summary)
+}
+
+#[tauri::command]
+async fn summarize_item(
+    state: State<'_, AppState>,
+    item_key: String,
+    provider: Option<ProviderId>,
+    use_fulltext: Option<bool>,
+) -> Result<StoredSummary> {
+    let s = state.settings();
+    let library = fetch_library_any(&s).await?;
+    let llm = build_provider(provider, &s).await?;
+    do_summarize(
+        &state,
+        &s,
+        &llm,
+        &library,
+        &item_key,
+        use_fulltext.unwrap_or(false),
+    )
+    .await
+}
+
+/// Batch-summarize (quick mode: metadata + abstract). Sequential, emits
+/// `summarize-progress` per item, never aborts the batch on per-item
+/// failures; returns the successfully created summaries.
+#[tauri::command]
+async fn summarize_items(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    item_keys: Vec<String>,
+    provider: Option<ProviderId>,
+) -> Result<Vec<StoredSummary>> {
+    let s = state.settings();
+    let library = fetch_library_any(&s).await?;
+    let llm = build_provider(provider, &s).await?;
+    let total = item_keys.len();
+    let mut done = Vec::new();
+
+    for (i, key) in item_keys.iter().enumerate() {
+        let title = find_item(&library, key).map(|it| it.title).ok();
+        emit_progress(
+            &app,
+            "summarize-progress",
+            ProgressEvent {
+                done: i,
+                total,
+                item_key: Some(key.clone()),
+                state: "running".into(),
+                message: title,
+            },
+        );
+        match do_summarize(&state, &s, &llm, &library, key, false).await {
+            Ok(summary) => {
+                done.push(summary);
+                emit_progress(
+                    &app,
+                    "summarize-progress",
+                    ProgressEvent {
+                        done: i + 1,
+                        total,
+                        item_key: Some(key.clone()),
+                        state: "ok".into(),
+                        message: None,
+                    },
+                );
+            }
+            Err(e) => emit_progress(
+                &app,
+                "summarize-progress",
+                ProgressEvent {
+                    done: i + 1,
+                    total,
+                    item_key: Some(key.clone()),
+                    state: "error".into(),
+                    message: Some(e.to_string()),
+                },
+            ),
+        }
+    }
+    Ok(done)
+}
+
+#[tauri::command]
+fn get_all_summaries(state: State<'_, AppState>) -> Result<Vec<StoredSummary>> {
+    let db = state.db.lock().expect("db mutex");
+    db.all_summaries()
 }
 
 /// One turn of the per-paper "Ask AI" chat. `history` must end with the
@@ -640,7 +725,9 @@ pub fn run() {
             get_status,
             get_library,
             get_summary,
+            get_all_summaries,
             summarize_item,
+            summarize_items,
             chat_with_item,
             classify_items,
             audit_items,

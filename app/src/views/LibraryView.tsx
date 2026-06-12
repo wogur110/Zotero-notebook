@@ -8,9 +8,11 @@ import {
 } from "../lib/library";
 import ItemTable from "../components/ItemTable";
 import AuditFlow from "./AuditFlow";
+import SummarizeFlow from "./SummarizeFlow";
 import {
   IconAlert,
   IconChevronRight,
+  IconFileText,
   IconSparkles,
 } from "../components/icons";
 
@@ -19,9 +21,13 @@ interface Props {
   selection: Selection;
   error: string | null;
   defaultProvider: ProviderId;
+  /** Keys of items that already have a stored AI summary. */
+  summarizedKeys: Set<string>;
   onOpenItem: (key: string) => void;
   onRetry: () => void;
   onApplied: () => void;
+  /** Notify the app that summaries changed (batch flow created some). */
+  onSummarized: () => void;
 }
 
 export default function LibraryView({
@@ -29,11 +35,14 @@ export default function LibraryView({
   selection,
   error,
   defaultProvider,
+  summarizedKeys,
   onOpenItem,
   onRetry,
   onApplied,
+  onSummarized,
 }: Props) {
   const [auditing, setAuditing] = useState(false);
+  const [summarizing, setSummarizing] = useState(false);
 
   const items = useMemo(
     () =>
@@ -50,6 +59,10 @@ export default function LibraryView({
   const auditable = useMemo(
     () => auditableItems(library, items),
     [library, items],
+  );
+  const unsummarized = useMemo(
+    () => items.filter((i) => !summarizedKeys.has(i.key)),
+    [items, summarizedKeys],
   );
 
   if (error) {
@@ -83,6 +96,18 @@ export default function LibraryView({
     );
   }
 
+  if (summarizing) {
+    return (
+      <SummarizeFlow
+        items={unsummarized}
+        scopeLabel={scopeLabel}
+        defaultProvider={defaultProvider}
+        onClose={() => setSummarizing(false)}
+        onSummarized={onSummarized}
+      />
+    );
+  }
+
   return (
     <div className="flex h-full flex-col">
       <div className="flex items-baseline gap-3 px-6 pt-5 pb-3">
@@ -108,6 +133,20 @@ export default function LibraryView({
           <span className="badge bg-info-soft text-info">
             Read-only — install the Zotero plugin to enable classification
           </span>
+        )}
+        {items.length > 0 && (
+          <button
+            className="btn-secondary"
+            disabled={unsummarized.length === 0}
+            title={
+              unsummarized.length === 0
+                ? "Every paper in this view already has a summary"
+                : `Quick-summarize the ${unsummarized.length} ${unsummarized.length === 1 ? "paper" : "papers"} in this view without a summary`
+            }
+            onClick={() => setSummarizing(true)}
+          >
+            <IconFileText size={14} /> Summarize {unsummarized.length}
+          </button>
         )}
         {library.writable && (
           <button

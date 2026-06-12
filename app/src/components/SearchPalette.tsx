@@ -1,19 +1,28 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import Fuse from "fuse.js";
-import type { Item, Library } from "../types";
+import type { Item, Library, StoredSummary } from "../types";
 import { collectionPath, formatAuthors, pathLabel } from "../lib/library";
 import { IconFileText, IconSearch } from "./icons";
 
 interface Props {
   open: boolean;
   library: Library;
+  /** Stored AI summaries — their text is part of the search index. */
+  summaries: StoredSummary[];
   onClose: () => void;
   onOpenItem: (key: string) => void;
+}
+
+/** Search document: the item plus its AI summary text (when one exists). */
+interface SearchDoc {
+  item: Item;
+  summaryText: string;
 }
 
 export default function SearchPalette({
   open,
   library,
+  summaries,
   onClose,
   onOpenItem,
 }: Props) {
@@ -21,21 +30,25 @@ export default function SearchPalette({
   const [active, setActive] = useState(0);
   const listRef = useRef<HTMLUListElement>(null);
 
-  const fuse = useMemo(
-    () =>
-      new Fuse(library.items, {
-        keys: [
-          { name: "title", weight: 2 },
-          { name: "creators", weight: 1 },
-          { name: "tags", weight: 1 },
-          { name: "publication", weight: 1 },
-          { name: "abstractText", weight: 0.5 },
-        ],
-        threshold: 0.35,
-        ignoreLocation: true,
-      }),
-    [library.items],
-  );
+  const fuse = useMemo(() => {
+    const summaryByKey = new Map(summaries.map((s) => [s.itemKey, s.summary]));
+    const docs: SearchDoc[] = library.items.map((item) => ({
+      item,
+      summaryText: summaryByKey.get(item.key) ?? "",
+    }));
+    return new Fuse(docs, {
+      keys: [
+        { name: "item.title", weight: 2 },
+        { name: "item.creators", weight: 1 },
+        { name: "item.tags", weight: 1 },
+        { name: "item.publication", weight: 1 },
+        { name: "item.abstractText", weight: 0.5 },
+        { name: "summaryText", weight: 0.7 },
+      ],
+      threshold: 0.35,
+      ignoreLocation: true,
+    });
+  }, [library.items, summaries]);
 
   const results: Item[] = useMemo(() => {
     if (!query.trim()) {
@@ -43,7 +56,7 @@ export default function SearchPalette({
         .sort((a, b) => (b.dateAdded ?? "").localeCompare(a.dateAdded ?? ""))
         .slice(0, 8);
     }
-    return fuse.search(query).map((r) => r.item).slice(0, 30);
+    return fuse.search(query).map((r) => r.item.item).slice(0, 30);
   }, [query, fuse, library.items]);
 
   useEffect(() => {

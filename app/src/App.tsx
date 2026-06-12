@@ -4,7 +4,13 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import * as api from "./api";
-import type { AppSettings, Item, Library, ZoteroStatus } from "./types";
+import type {
+  AppSettings,
+  Item,
+  Library,
+  StoredSummary,
+  ZoteroStatus,
+} from "./types";
 import { unclassifiedItems } from "./lib/library";
 import Sidebar from "./components/Sidebar";
 import Topbar from "./components/Topbar";
@@ -38,9 +44,15 @@ export default function App() {
   const [onboarded, setOnboarded] = useState(
     () => localStorage.getItem("zn-onboarded") === "1",
   );
+  const [summaries, setSummaries] = useState<StoredSummary[]>([]);
+
+  const refreshSummaries = useCallback(() => {
+    api.getAllSummaries().then(setSummaries).catch(() => {});
+  }, []);
 
   const refreshLibrary = useCallback(async () => {
     setRefreshing(true);
+    refreshSummaries();
     try {
       setLibrary(await api.getLibrary());
       setLibraryError(null);
@@ -49,7 +61,7 @@ export default function App() {
     } finally {
       setRefreshing(false);
     }
-  }, []);
+  }, [refreshSummaries]);
 
   const refreshStatus = useCallback(async () => {
     try {
@@ -94,6 +106,10 @@ export default function App() {
   }, []);
 
   const unclassified = useMemo(() => unclassifiedItems(library), [library]);
+  const summarizedKeys = useMemo(
+    () => new Set(summaries.map((s) => s.itemKey)),
+    [summaries],
+  );
   const openItem: Item | null = useMemo(
     () => library.items.find((i) => i.key === openItemKey) ?? null,
     [library, openItemKey],
@@ -168,9 +184,11 @@ export default function App() {
               selection={selection}
               error={libraryError}
               defaultProvider={settings?.defaultProvider ?? "gemini"}
+              summarizedKeys={summarizedKeys}
               onOpenItem={setOpenItemKey}
               onRetry={refreshLibrary}
               onApplied={refreshLibrary}
+              onSummarized={refreshSummaries}
             />
           )}
         </main>
@@ -182,12 +200,16 @@ export default function App() {
           item={openItem}
           library={library}
           defaultProvider={settings?.defaultProvider ?? "gemini"}
-          onClose={() => setOpenItemKey(null)}
+          onClose={() => {
+            setOpenItemKey(null);
+            refreshSummaries(); // a summary may have been (re)generated
+          }}
         />
       )}
       <SearchPalette
         open={searchOpen}
         library={library}
+        summaries={summaries}
         onClose={() => setSearchOpen(false)}
         onOpenItem={(key) => {
           setSearchOpen(false);

@@ -51,6 +51,8 @@ string). The frontend mirror lives in `app/src/api.ts`.
 | `get_status` | — | `ZoteroStatus` | Probes plugin ping, then local API ping. Also emitted as `zotero-status` event by a 15 s background watcher. |
 | `get_library` | — | `Library` | Plugin `/library`; falls back to local API (read-only, `writable: false`). |
 | `get_summary` | `itemKey` | `StoredSummary \| null` | From sidecar DB. |
+| `get_all_summaries` | — | `StoredSummary[]` | Whole sidecar table; powers search-over-summaries and the batch button's "N without a summary" count. |
+| `summarize_items` | `itemKeys: string[]`, `provider?` | `StoredSummary[]` | Batch quick-summarize (metadata+abstract only); sequential, emits `summarize-progress`, per-item failures don't abort. |
 | `summarize_item` | `itemKey`, `provider?`, `useFulltext?` | `StoredSummary` | Default: metadata+abstract prompt (cheap). `useFulltext: true` (a separate UI button) additionally sends up to 80k chars of the PDF's extracted text via the plugin. The result records its `source` (fulltext/abstract/metadata) for the UI badge. |
 | `chat_with_item` | `itemKey`, `history: ChatMessage[]`, `provider?` | `string` | Per-paper "Ask AI" chat. Context = metadata + extracted PDF text (80k cap, plugin `/fulltext`). Streams fragments as `chat-delta` events (`ChatDelta`), resolves with the full answer. Answers always in English. |
 | `classify_items` | `itemKeys: string[]`, `provider?` | `ClassificationProposal[]` | Sequential; emits `classify-progress` (`ProgressEvent`) per item. |
@@ -66,8 +68,8 @@ string). The frontend mirror lives in `app/src/api.ts`.
 | `export_plugin_xpi` | `destDir` | `string` | Writes the bundled `.xpi` (Tauri resource) into `destDir`, returns the full path. Used by Settings → "Install Zotero plugin". |
 
 Events: `zotero-status` (`ZoteroStatus`), `classify-progress`,
-`audit-progress`, `apply-progress` (all `ProgressEvent`), `chat-delta`
-(`ChatDelta`, streamed chat fragments).
+`audit-progress`, `apply-progress`, `summarize-progress` (all
+`ProgressEvent`), `chat-delta` (`ChatDelta`, streamed chat fragments).
 
 ## LLM providers
 

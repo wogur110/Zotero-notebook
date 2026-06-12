@@ -39,7 +39,10 @@ failure.
 - **Ask AI about a paper** — a chat tab in the paper popup, grounded in the
   PDF's extracted full text, with streaming answers (always in English).
 - **Fast search** — `Ctrl/Cmd+K` fuzzy search across titles, authors, tags,
-  venues, and abstracts.
+  venues, abstracts, **and your stored AI summaries**.
+- **Batch summarize** — a **Summarize N** button in the library header
+  quick-summarizes every paper in the current view that has no summary yet
+  (confirm first, per-paper progress, per-paper failure reporting).
 - **Paper popup** — full metadata, AI summary, **Open PDF**, **Show in
   Folder** (Explorer/Finder with the file selected), and **Open in Zotero**.
 - **Review-then-apply AI classification** — for everything in

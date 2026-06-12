@@ -74,6 +74,7 @@ describe("SearchPalette", () => {
       <SearchPalette
         open
         library={library}
+        summaries={[]}
         onClose={() => {}}
         onOpenItem={onOpen}
       />,
@@ -87,9 +88,46 @@ describe("SearchPalette", () => {
     expect(onOpen).toHaveBeenCalledWith("I1");
   });
 
+  it("matches papers by their AI summary text", async () => {
+    const onOpen = vi.fn();
+    render(
+      <SearchPalette
+        open
+        library={library}
+        summaries={[
+          {
+            itemKey: "I2",
+            summary:
+              "Introduces wavelet-based attention for long documents.",
+            provider: "gemini",
+            model: "gemini-2.5-pro",
+            createdAt: "2026-06-11T00:00:00Z",
+            source: "abstract",
+          },
+        ]}
+        onClose={() => {}}
+        onOpenItem={onOpen}
+      />,
+    );
+    // "wavelet" appears ONLY in the stored summary, not in any metadata.
+    fireEvent.change(screen.getByLabelText("Search query"), {
+      target: { value: "wavelet" },
+    });
+    await screen.findByText("Transformers for language");
+    expect(
+      screen.queryByText("Diffusion models for images"),
+    ).not.toBeInTheDocument();
+  });
+
   it("shows recent items when the query is empty", () => {
     render(
-      <SearchPalette open library={library} onClose={() => {}} onOpenItem={() => {}} />,
+      <SearchPalette
+        open
+        library={library}
+        summaries={[]}
+        onClose={() => {}}
+        onOpenItem={() => {}}
+      />,
     );
     expect(screen.getByText("Recent")).toBeInTheDocument();
     expect(screen.getByText("Transformers for language")).toBeInTheDocument();

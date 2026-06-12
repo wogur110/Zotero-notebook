@@ -43,9 +43,11 @@ describe("LibraryView", () => {
         selection={{ kind: "all" }}
         error={null}
         defaultProvider="gemini"
+        summarizedKeys={new Set<string>()}
         onOpenItem={onOpen}
         onRetry={() => {}}
         onApplied={() => {}}
+        onSummarized={() => {}}
       />,
     );
     expect(screen.getByText("All Papers")).toBeInTheDocument();
@@ -61,9 +63,11 @@ describe("LibraryView", () => {
         selection={{ kind: "collection", key: "CV" }}
         error={null}
         defaultProvider="gemini"
+        summarizedKeys={new Set<string>()}
         onOpenItem={() => {}}
         onRetry={() => {}}
         onApplied={() => {}}
+        onSummarized={() => {}}
       />,
     );
     // CV + nested DM = 2 papers; the unfiled one is excluded.
@@ -79,9 +83,11 @@ describe("LibraryView", () => {
         selection={{ kind: "all" }}
         error="Zotero is not running"
         defaultProvider="gemini"
+        summarizedKeys={new Set<string>()}
         onOpenItem={() => {}}
         onRetry={onRetry}
         onApplied={() => {}}
+        onSummarized={() => {}}
       />,
     );
     expect(screen.getByText("Zotero is not running")).toBeInTheDocument();

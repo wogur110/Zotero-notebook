@@ -322,3 +322,24 @@ fn settings_parse_pre_local_provider_file() {
     assert_eq!(s.local_base_url, "http://127.0.0.1:11434/v1", "new field defaulted");
     assert_eq!(s.local_model, "llama3.1:8b");
 }
+
+#[test]
+fn db_all_summaries_lists_every_row() {
+    let db = Db::open_in_memory().unwrap();
+    for (key, src) in [("A", SummarySource::Abstract), ("B", SummarySource::Fulltext)] {
+        db.upsert_summary(&StoredSummary {
+            item_key: key.into(),
+            summary: format!("summary {key}"),
+            provider: "gemini".into(),
+            model: "m".into(),
+            created_at: "t".into(),
+            source: src,
+        })
+        .unwrap();
+    }
+    let mut all = db.all_summaries().unwrap();
+    all.sort_by(|a, b| a.item_key.cmp(&b.item_key));
+    assert_eq!(all.len(), 2);
+    assert_eq!(all[0].item_key, "A");
+    assert_eq!(all[1].source, SummarySource::Fulltext);
+}

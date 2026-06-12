@@ -24,6 +24,16 @@ export const getLibrary = () => invoke<Library>("get_library");
 export const getSummary = (itemKey: string) =>
   invoke<StoredSummary | null>("get_summary", { itemKey });
 
+export const getAllSummaries = () =>
+  invoke<StoredSummary[]>("get_all_summaries");
+
+/** Batch quick-summarize; progress streams via `onSummarizeProgress`. */
+export const summarizeItems = (itemKeys: string[], provider?: ProviderId) =>
+  invoke<StoredSummary[]>("summarize_items", {
+    itemKeys,
+    provider: provider ?? null,
+  });
+
 export const summarizeItem = (
   itemKey: string,
   provider?: ProviderId,
@@ -96,6 +106,11 @@ export const onClassifyProgress = (
   cb: (p: ProgressEvent) => void,
 ): Promise<UnlistenFn> =>
   listen<ProgressEvent>("classify-progress", (e) => cb(e.payload));
+
+export const onSummarizeProgress = (
+  cb: (p: ProgressEvent) => void,
+): Promise<UnlistenFn> =>
+  listen<ProgressEvent>("summarize-progress", (e) => cb(e.payload));
 
 export const onChatDelta = (
   cb: (d: ChatDelta) => void,

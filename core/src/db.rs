@@ -92,6 +92,38 @@ impl Db {
         Ok(row)
     }
 
+    /// Every stored summary — powers search-over-summaries and the batch
+    /// "summarize missing" button. Libraries are a few thousand items at
+    /// most, so loading all rows is fine.
+    pub fn all_summaries(&self) -> Result<Vec<StoredSummary>> {
+        let mut stmt = self.conn.prepare(
+            "SELECT item_key, summary, provider, model, created_at, had_abstract, source
+             FROM summaries",
+        )?;
+        let rows = stmt.query_map([], |r| {
+            let source_raw: String = r.get(6)?;
+            let had_abstract: bool = r.get(5)?;
+            let source = SummarySource::parse(&source_raw).unwrap_or(if had_abstract {
+                SummarySource::Abstract
+            } else {
+                SummarySource::Metadata
+            });
+            Ok(StoredSummary {
+                item_key: r.get(0)?,
+                summary: r.get(1)?,
+                provider: r.get(2)?,
+                model: r.get(3)?,
+                created_at: r.get(4)?,
+                source,
+            })
+        })?;
+        let mut out = Vec::new();
+        for row in rows {
+            out.push(row?);
+        }
+        Ok(out)
+    }
+
     pub fn upsert_summary(&self, s: &StoredSummary) -> Result<()> {
         self.conn.execute(
             "INSERT INTO summaries (item_key, summary, provider, model, created_at, had_abstract, source)
