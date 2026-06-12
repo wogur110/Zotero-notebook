@@ -1,25 +1,40 @@
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
 import type { Selection } from "../App";
-import type { Library } from "../types";
-import { collectionPath, itemsForCollection } from "../lib/library";
+import type { Library, ProviderId } from "../types";
+import {
+  auditableItems,
+  collectionPath,
+  itemsForCollection,
+} from "../lib/library";
 import ItemTable from "../components/ItemTable";
-import { IconAlert, IconChevronRight } from "../components/icons";
+import AuditFlow from "./AuditFlow";
+import {
+  IconAlert,
+  IconChevronRight,
+  IconSparkles,
+} from "../components/icons";
 
 interface Props {
   library: Library;
   selection: Selection;
   error: string | null;
+  defaultProvider: ProviderId;
   onOpenItem: (key: string) => void;
   onRetry: () => void;
+  onApplied: () => void;
 }
 
 export default function LibraryView({
   library,
   selection,
   error,
+  defaultProvider,
   onOpenItem,
   onRetry,
+  onApplied,
 }: Props) {
+  const [auditing, setAuditing] = useState(false);
+
   const items = useMemo(
     () =>
       selection.kind === "collection"
@@ -31,6 +46,11 @@ export default function LibraryView({
     selection.kind === "collection"
       ? collectionPath(library, selection.key)
       : [];
+  const scopeLabel = path.length === 0 ? "All Papers" : path.join(" / ");
+  const auditable = useMemo(
+    () => auditableItems(library, items),
+    [library, items],
+  );
 
   if (error) {
     return (
@@ -46,6 +66,20 @@ export default function LibraryView({
           </button>
         </div>
       </div>
+    );
+  }
+
+  if (auditing) {
+    return (
+      <AuditFlow
+        library={library}
+        items={auditable}
+        scopeLabel={scopeLabel}
+        defaultProvider={defaultProvider}
+        onOpenItem={onOpenItem}
+        onClose={() => setAuditing(false)}
+        onApplied={onApplied}
+      />
     );
   }
 
@@ -74,6 +108,20 @@ export default function LibraryView({
           <span className="badge bg-info-soft text-info">
             Read-only — install the Zotero plugin to enable classification
           </span>
+        )}
+        {library.writable && (
+          <button
+            className="btn-secondary"
+            disabled={auditable.length === 0}
+            title={
+              auditable.length === 0
+                ? "No classified papers in this view to check"
+                : `Ask AI to re-check the filing of ${auditable.length} ${auditable.length === 1 ? "paper" : "papers"} in this view`
+            }
+            onClick={() => setAuditing(true)}
+          >
+            <IconSparkles size={14} /> Check filing
+          </button>
         )}
       </div>
       <div className="min-h-0 flex-1">

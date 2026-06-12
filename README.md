@@ -42,6 +42,11 @@ failure.
   edit/approve in a review table, then the app applies the moves with
   per-paper progress. Each move updates the Zotero collection **and**
   relocates the linked PDF to the matching folder, atomically with rollback.
+- **Filing check for classified papers** — the **Check filing** button (on
+  All Papers or any collection) asks the AI to re-examine each paper's
+  current collection. It is deliberately conservative: a paper is flagged
+  only when *no* current collection fits, and you review every proposed
+  move (current → suggested, with rationale) before anything changes.
 - **Windows installer** (plus Linux/macOS builds) from CI.
 
 ## Install

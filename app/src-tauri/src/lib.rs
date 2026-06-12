@@ -11,8 +11,8 @@ use tauri::{AppHandle, Emitter, Manager, State};
 use zn_core::llm::{AnyProvider, SummarizeRequest};
 use zn_core::llm::provider::{ANTHROPIC_BASE_URL, GEMINI_BASE_URL};
 use zn_core::models::{
-    AppSettings, ClassificationDecision, ClassificationProposal, Item, Library, MoveResult,
-    ProgressEvent, ProviderId, StoredSummary, ZoteroStatus, UNCLASSIFIED_COLLECTION,
+    AppSettings, AuditProposal, ClassificationDecision, ClassificationProposal, Item, Library,
+    MoveResult, ProgressEvent, ProviderId, StoredSummary, ZoteroStatus, UNCLASSIFIED_COLLECTION,
 };
 use zn_core::zotero::{local_api, plugin_api};
 use zn_core::{classify, db, keychain, settings, Error, Result};
@@ -224,6 +224,63 @@ async fn classify_items(
     Ok(proposals)
 }
 
+/// Audit already-classified papers: for each item, ask the LLM whether its
+/// current filing fits and collect refile proposals. Items the model judges
+/// correctly filed yield no proposal (progress event message "ok").
+#[tauri::command]
+async fn audit_items(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    item_keys: Vec<String>,
+    provider: Option<ProviderId>,
+) -> Result<Vec<AuditProposal>> {
+    let s = state.settings();
+    let library = fetch_library_any(&s).await?;
+    let llm = build_provider(provider, &s).await?;
+    let total = item_keys.len();
+    let mut proposals = Vec::new();
+
+    for (i, key) in item_keys.iter().enumerate() {
+        let emit = |done: usize, st: &str, message: Option<String>| {
+            emit_progress(
+                &app,
+                "audit-progress",
+                ProgressEvent {
+                    done,
+                    total,
+                    item_key: Some(key.clone()),
+                    state: st.into(),
+                    message,
+                },
+            );
+        };
+        let item = match find_item(&library, key) {
+            Ok(it) => it,
+            Err(e) => {
+                emit(i + 1, "error", Some(e.to_string()));
+                continue;
+            }
+        };
+        emit(i, "running", Some(item.title.clone()));
+        let outcome = async {
+            let req = classify::build_audit_request(&item, &library)
+                .ok_or_else(|| Error::Other("not classified yet — use the Unclassified flow".into()))?;
+            let resp = llm.audit(&req).await?;
+            classify::audit_to_proposal(&item, resp, &library)
+        }
+        .await;
+        match outcome {
+            Ok(Some(p)) => {
+                proposals.push(p);
+                emit(i + 1, "ok", Some("misplaced".into()));
+            }
+            Ok(None) => emit(i + 1, "ok", None),
+            Err(e) => emit(i + 1, "error", Some(e.to_string())),
+        }
+    }
+    Ok(proposals)
+}
+
 #[tauri::command]
 async fn apply_classifications(
     app: AppHandle,
@@ -269,11 +326,19 @@ async fn apply_classifications(
                 message: None,
             },
         );
+        // Always drop the Unclassified membership; the audit flow also
+        // drops the memberships it judged wrong (decision.remove_collection_keys).
+        let mut remove_from = unclassified_key.clone();
+        for key in &d.remove_collection_keys {
+            if !remove_from.contains(key) {
+                remove_from.push(key.clone());
+            }
+        }
         let result = client
             .move_item(
                 &d.item_key,
                 &d.target_path,
-                &unclassified_key,
+                &remove_from,
                 s.file_root.as_deref(),
             )
             .await
@@ -456,6 +521,7 @@ pub fn run() {
             get_summary,
             summarize_item,
             classify_items,
+            audit_items,
             apply_classifications,
             reveal_item_file,
             open_item_pdf,

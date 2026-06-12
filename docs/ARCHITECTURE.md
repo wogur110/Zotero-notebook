@@ -53,7 +53,8 @@ string). The frontend mirror lives in `app/src/api.ts`.
 | `get_summary` | `itemKey` | `StoredSummary \| null` | From sidecar DB. |
 | `summarize_item` | `itemKey`, `provider?` | `StoredSummary` | Builds metadata-based prompt, calls provider, upserts into DB. |
 | `classify_items` | `itemKeys: string[]`, `provider?` | `ClassificationProposal[]` | Sequential; emits `classify-progress` (`ProgressEvent`) per item. |
-| `apply_classifications` | `decisions: ClassificationDecision[]` | `MoveResult[]` | Plugin move-item per decision; emits `apply-progress`. Continues past per-item failures. |
+| `audit_items` | `itemKeys: string[]`, `provider?` | `AuditProposal[]` | Re-checks already-classified papers ("is the current filing right?"); conservative prompt — flags only when no current collection fits. Emits `audit-progress`. |
+| `apply_classifications` | `decisions: ClassificationDecision[]` | `MoveResult[]` | Plugin move-item per decision; emits `apply-progress`. Continues past per-item failures. Removes the Unclassified membership plus any `removeCollectionKeys` on the decision (audit flow). |
 | `reveal_item_file` | `itemKey` | — | Opens OS file manager with the file selected (`explorer /select,` on Windows, `open -R` on macOS, `xdg-open` parent dir on Linux). |
 | `open_item_pdf` | `itemKey` | — | Opens the PDF with the default app. |
 | `open_in_zotero` | `itemKey` | — | Opens `zotero://select/library/items/<KEY>`. |
@@ -64,7 +65,7 @@ string). The frontend mirror lives in `app/src/api.ts`.
 | `export_plugin_xpi` | `destDir` | `string` | Writes the bundled `.xpi` (Tauri resource) into `destDir`, returns the full path. Used by Settings → "Install Zotero plugin". |
 
 Events: `zotero-status` (`ZoteroStatus`), `classify-progress`,
-`apply-progress` (both `ProgressEvent`).
+`audit-progress`, `apply-progress` (all `ProgressEvent`).
 
 ## LLM providers
 

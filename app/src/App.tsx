@@ -167,8 +167,10 @@ export default function App() {
               library={library}
               selection={selection}
               error={libraryError}
+              defaultProvider={settings?.defaultProvider ?? "gemini"}
               onOpenItem={setOpenItemKey}
               onRetry={refreshLibrary}
+              onApplied={refreshLibrary}
             />
           )}
         </main>

@@ -7,7 +7,8 @@ use serde_json::{json, Value};
 
 use crate::error::{Error, Result};
 use crate::llm::provider::{
-    classify_prompt, summarize_prompt, ClassifyRequest, ClassifyResponse, SummarizeRequest,
+    audit_prompt, classify_prompt, summarize_prompt, AuditRequest, AuditResponse,
+    ClassifyRequest, ClassifyResponse, SummarizeRequest,
 };
 
 const TEST_MODEL: &str = "gemini-2.5-flash";
@@ -137,6 +138,31 @@ impl GeminiClient {
         let text = Self::extract_text(&value)?;
         serde_json::from_str(&text)
             .map_err(|e| Error::llm(PROVIDER, format!("classification was not valid JSON: {e}")))
+    }
+
+    pub async fn audit(&self, req: &AuditRequest) -> Result<AuditResponse> {
+        // Gemini's responseSchema dialect (OpenAPI-style, UPPERCASE types).
+        let schema = json!({
+            "type": "OBJECT",
+            "properties": {
+                "misplaced": { "type": "BOOLEAN" },
+                "path": { "type": "ARRAY", "items": { "type": "STRING" } },
+                "confidence": { "type": "NUMBER" },
+                "rationale": { "type": "STRING" }
+            },
+            "required": ["misplaced", "path", "confidence", "rationale"]
+        });
+        let body = json!({
+            "contents": [{ "parts": [{ "text": audit_prompt(req) }] }],
+            "generationConfig": {
+                "responseMimeType": "application/json",
+                "responseSchema": schema
+            }
+        });
+        let value = self.generate(&self.model, body).await?;
+        let text = Self::extract_text(&value)?;
+        serde_json::from_str(&text)
+            .map_err(|e| Error::llm(PROVIDER, format!("audit result was not valid JSON: {e}")))
     }
 }
 

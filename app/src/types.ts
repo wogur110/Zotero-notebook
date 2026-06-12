@@ -66,6 +66,18 @@ export interface ClassificationProposal {
 export interface ClassificationDecision {
   itemKey: string;
   targetPath: string[];
+  /** Extra memberships to drop with the move (audit flow). */
+  removeCollectionKeys?: string[];
+}
+
+export interface AuditProposal {
+  itemKey: string;
+  currentPaths: string[][];
+  currentKeys: string[];
+  proposedPath: string[];
+  isNewCollection: boolean;
+  confidence: number;
+  rationale: string;
 }
 
 export interface MoveResult {

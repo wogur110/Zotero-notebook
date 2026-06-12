@@ -10,12 +10,12 @@ import type {
 } from "../types";
 import ItemTable from "../components/ItemTable";
 import PathPicker from "../components/PathPicker";
+import ProgressCard from "../components/ProgressCard";
 import {
   IconAlert,
   IconArrowRight,
   IconCheck,
   IconChevronRight,
-  IconLoader,
   IconSparkles,
 } from "../components/icons";
 
@@ -146,26 +146,11 @@ export default function UnclassifiedView({
     const verb = phase === "classifying" ? "Analyzing" : "Moving";
     const pct = progress && progress.total > 0 ? (progress.done / progress.total) * 100 : 0;
     return (
-      <Centered>
-        <div className="card w-[440px] max-w-[90vw] p-6 text-center">
-          <div className="mx-auto mb-3 flex h-11 w-11 items-center justify-center rounded-full bg-accent-soft text-accent">
-            <IconLoader size={20} />
-          </div>
-          <p className="font-medium">
-            {verb} paper {Math.min((progress?.done ?? 0) + 1, progress?.total ?? 1)} of{" "}
-            {progress?.total ?? items.length}
-          </p>
-          <p className="mt-1 h-5 truncate text-sm text-muted">
-            {progress?.itemKey ? titleOf(progress.itemKey) : "…"}
-          </p>
-          <div className="mt-4 h-1 overflow-hidden rounded-full bg-inset">
-            <div
-              className="h-full bg-accent transition-all duration-300"
-              style={{ width: `${pct}%` }}
-            />
-          </div>
-        </div>
-      </Centered>
+      <ProgressCard
+        title={`${verb} paper ${Math.min((progress?.done ?? 0) + 1, progress?.total ?? 1)} of ${progress?.total ?? items.length}`}
+        subtitle={progress?.itemKey ? titleOf(progress.itemKey) : "…"}
+        pct={pct}
+      />
     );
   }
 

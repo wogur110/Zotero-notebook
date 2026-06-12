@@ -169,6 +169,28 @@ pub struct ClassificationProposal {
 pub struct ClassificationDecision {
     pub item_key: String,
     pub target_path: Vec<String>,
+    /// Additional collection memberships to remove with this move (used by
+    /// the audit flow to replace wrong placements). The "Unclassified"
+    /// membership is always removed regardless.
+    #[serde(default)]
+    pub remove_collection_keys: Vec<String>,
+}
+
+/// Result of auditing one already-classified paper: a proposal to refile it.
+/// Papers the model judges correctly filed produce no proposal.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct AuditProposal {
+    pub item_key: String,
+    /// The paper's current collection paths (root → leaf), all judged wrong.
+    pub current_paths: Vec<Vec<String>>,
+    /// Collection keys of those current memberships (to remove on apply).
+    pub current_keys: Vec<String>,
+    pub proposed_path: Vec<String>,
+    pub is_new_collection: bool,
+    /// 0.0–1.0
+    pub confidence: f64,
+    pub rationale: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]

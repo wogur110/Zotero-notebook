@@ -10,8 +10,8 @@ use serde_json::{json, Value};
 
 use crate::error::{Error, Result};
 use crate::llm::provider::{
-    classify_prompt, classify_schema, summarize_prompt, ClassifyRequest, ClassifyResponse,
-    SummarizeRequest,
+    audit_prompt, audit_schema, classify_prompt, classify_schema, summarize_prompt,
+    AuditRequest, AuditResponse, ClassifyRequest, ClassifyResponse, SummarizeRequest,
 };
 
 const API_VERSION: &str = "2023-06-01";
@@ -147,6 +147,24 @@ impl AnthropicClient {
         let text = Self::extract_text(&value, true)?;
         serde_json::from_str(&text)
             .map_err(|e| Error::llm(PROVIDER, format!("classification was not valid JSON: {e}")))
+    }
+
+    pub async fn audit(&self, req: &AuditRequest) -> Result<AuditResponse> {
+        let body = json!({
+            "model": self.model,
+            "max_tokens": 600,
+            "messages": [{ "role": "user", "content": audit_prompt(req) }],
+            "output_config": {
+                "format": {
+                    "type": "json_schema",
+                    "schema": audit_schema()
+                }
+            }
+        });
+        let value = self.messages(body).await?;
+        let text = Self::extract_text(&value, true)?;
+        serde_json::from_str(&text)
+            .map_err(|e| Error::llm(PROVIDER, format!("audit result was not valid JSON: {e}")))
     }
 }
 

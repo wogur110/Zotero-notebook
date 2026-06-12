@@ -7,7 +7,7 @@ use wiremock::{Mock, MockServer, Request, ResponseTemplate};
 
 use zn_core::llm::anthropic::AnthropicClient;
 use zn_core::llm::gemini::GeminiClient;
-use zn_core::llm::provider::{ClassifyRequest, SummarizeRequest};
+use zn_core::llm::provider::{AuditRequest, ClassifyRequest, SummarizeRequest};
 use zn_core::Error;
 
 fn summarize_req() -> SummarizeRequest {
@@ -29,6 +29,19 @@ fn classify_req() -> ClassifyRequest {
         abstract_text: None,
         tags: vec!["diffusion".into()],
         existing_paths: vec![vec!["Computer Vision".into()]],
+    }
+}
+
+fn audit_req() -> AuditRequest {
+    AuditRequest {
+        title: "Attention Is All You Need".into(),
+        creators: vec!["Ashish Vaswani".into()],
+        year: Some(2017),
+        publication: Some("NeurIPS".into()),
+        abstract_text: None,
+        tags: vec![],
+        current_paths: vec![vec!["Hardware".into()]],
+        existing_paths: vec![vec!["Hardware".into()], vec!["NLP".into()]],
     }
 }
 
@@ -86,6 +99,35 @@ async fn gemini_classify_uses_response_schema_and_parses_json() {
     assert_eq!(resp.path, vec!["Computer Vision"]);
     assert!(!resp.is_new);
     assert!((resp.confidence - 0.9).abs() < 1e-9);
+}
+
+#[tokio::test]
+async fn gemini_audit_request_shape_and_parsing() {
+    let server = MockServer::start().await;
+    Mock::given(method("POST"))
+        .and(path("/v1beta/models/gemini-2.5-pro:generateContent"))
+        .respond_with(|req: &Request| {
+            let body: serde_json::Value = serde_json::from_slice(&req.body).unwrap();
+            let text = body["contents"][0]["parts"][0]["text"].as_str().unwrap();
+            assert!(text.contains("currently filed in"), "prompt states current filing");
+            assert!(text.contains("Hardware"), "prompt contains the current path");
+            assert_eq!(
+                body["generationConfig"]["responseSchema"]["properties"]["misplaced"]["type"],
+                "BOOLEAN"
+            );
+            ResponseTemplate::new(200).set_body_json(json!({
+                "candidates": [{ "content": { "parts": [{
+                    "text": "{\"misplaced\": true, \"path\": [\"NLP\"], \"confidence\": 0.85, \"rationale\": \"transformer paper\"}"
+                }] } }]
+            }))
+        })
+        .mount(&server)
+        .await;
+
+    let client = GeminiClient::new("k".into(), "gemini-2.5-pro".into(), server.uri());
+    let resp = client.audit(&audit_req()).await.unwrap();
+    assert!(resp.misplaced);
+    assert_eq!(resp.path, vec!["NLP"]);
 }
 
 #[tokio::test]
@@ -178,6 +220,36 @@ async fn anthropic_classify_uses_output_config_json_schema() {
     let resp = client.classify(&classify_req()).await.unwrap();
     assert_eq!(resp.path.len(), 2);
     assert!(resp.is_new);
+}
+
+#[tokio::test]
+async fn anthropic_audit_request_shape_and_parsing() {
+    let server = MockServer::start().await;
+    Mock::given(method("POST"))
+        .and(path("/v1/messages"))
+        .respond_with(|req: &Request| {
+            let body: serde_json::Value = serde_json::from_slice(&req.body).unwrap();
+            assert!(body.get("temperature").is_none());
+            assert_eq!(body["output_config"]["format"]["type"], "json_schema");
+            assert_eq!(
+                body["output_config"]["format"]["schema"]["properties"]["misplaced"]["type"],
+                "boolean"
+            );
+            let content = body["messages"][0]["content"].as_str().unwrap();
+            assert!(content.contains("currently filed in"));
+            ResponseTemplate::new(200).set_body_json(json!({
+                "content": [{ "type": "text",
+                    "text": "{\"misplaced\": false, \"path\": [], \"confidence\": 0.9, \"rationale\": \"fits fine\"}" }],
+                "stop_reason": "end_turn"
+            }))
+        })
+        .mount(&server)
+        .await;
+
+    let client = AnthropicClient::new("k".into(), "claude-opus-4-8".into(), server.uri());
+    let resp = client.audit(&audit_req()).await.unwrap();
+    assert!(!resp.misplaced);
+    assert!(resp.path.is_empty());
 }
 
 #[tokio::test]

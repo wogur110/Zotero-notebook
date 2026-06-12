@@ -5,6 +5,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import type {
   AppSettings,
+  AuditProposal,
   ClassificationDecision,
   ClassificationProposal,
   Library,
@@ -26,6 +27,12 @@ export const summarizeItem = (itemKey: string, provider?: ProviderId) =>
 
 export const classifyItems = (itemKeys: string[], provider?: ProviderId) =>
   invoke<ClassificationProposal[]>("classify_items", {
+    itemKeys,
+    provider: provider ?? null,
+  });
+
+export const auditItems = (itemKeys: string[], provider?: ProviderId) =>
+  invoke<AuditProposal[]>("audit_items", {
     itemKeys,
     provider: provider ?? null,
   });
@@ -67,6 +74,11 @@ export const onClassifyProgress = (
   cb: (p: ProgressEvent) => void,
 ): Promise<UnlistenFn> =>
   listen<ProgressEvent>("classify-progress", (e) => cb(e.payload));
+
+export const onAuditProgress = (
+  cb: (p: ProgressEvent) => void,
+): Promise<UnlistenFn> =>
+  listen<ProgressEvent>("audit-progress", (e) => cb(e.payload));
 
 export const onApplyProgress = (
   cb: (p: ProgressEvent) => void,

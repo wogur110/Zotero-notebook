@@ -103,6 +103,26 @@ export function unclassifiedItems(library: Library): Item[] {
   );
 }
 
+/** True when the collection key sits under the top-level "Unclassified". */
+export function isUnclassifiedRooted(library: Library, key: string): boolean {
+  const path = collectionPath(library, key);
+  return (
+    path.length > 0 &&
+    path[0].trim().toLowerCase() === UNCLASSIFIED_COLLECTION.toLowerCase()
+  );
+}
+
+/**
+ * Items whose filing can be audited: at least one collection membership
+ * outside the Unclassified tree. (Everything else belongs to the
+ * Unclassified flow.)
+ */
+export function auditableItems(library: Library, items: Item[]): Item[] {
+  return items.filter((i) =>
+    i.collectionKeys.some((k) => !isUnclassifiedRooted(library, k)),
+  );
+}
+
 export function collectionPath(library: Library, key: string): string[] {
   const path: string[] = [];
   let cursor: string | null = key;

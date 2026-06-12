@@ -5,8 +5,10 @@
 //! flag is recomputed here rather than believed.
 
 use crate::error::{Error, Result};
-use crate::llm::provider::{ClassifyRequest, ClassifyResponse};
-use crate::models::{ClassificationProposal, Item, Library, UNCLASSIFIED_COLLECTION};
+use crate::llm::provider::{AuditRequest, AuditResponse, ClassifyRequest, ClassifyResponse};
+use crate::models::{
+    AuditProposal, ClassificationProposal, Item, Library, UNCLASSIFIED_COLLECTION,
+};
 
 const MAX_DEPTH: usize = 3;
 const MAX_RATIONALE: usize = 500;
@@ -42,8 +44,12 @@ pub fn normalize_response(
     resp: &ClassifyResponse,
     library: &Library,
 ) -> Result<(Vec<String>, bool)> {
-    let mut path: Vec<String> = resp
-        .path
+    normalize_path(&resp.path, library)
+}
+
+/// Shared path normalization for classify and audit proposals.
+pub fn normalize_path(raw: &[String], library: &Library) -> Result<(Vec<String>, bool)> {
+    let mut path: Vec<String> = raw
         .iter()
         .map(|s| s.trim().to_string())
         .filter(|s| !s.is_empty())
@@ -84,13 +90,8 @@ pub fn normalize_response(
     Ok((path, is_new))
 }
 
-pub fn to_proposal(
-    item_key: &str,
-    resp: ClassifyResponse,
-    library: &Library,
-) -> Result<ClassificationProposal> {
-    let (path, is_new) = normalize_response(&resp, library)?;
-    let mut rationale = resp.rationale.trim().to_string();
+fn trim_rationale(raw: &str) -> String {
+    let mut rationale = raw.trim().to_string();
     if rationale.len() > MAX_RATIONALE {
         let mut end = MAX_RATIONALE;
         while !rationale.is_char_boundary(end) {
@@ -99,11 +100,91 @@ pub fn to_proposal(
         rationale.truncate(end);
         rationale.push('…');
     }
+    rationale
+}
+
+pub fn to_proposal(
+    item_key: &str,
+    resp: ClassifyResponse,
+    library: &Library,
+) -> Result<ClassificationProposal> {
+    let (path, is_new) = normalize_response(&resp, library)?;
     Ok(ClassificationProposal {
         item_key: item_key.to_string(),
         proposed_path: path,
         is_new_collection: is_new,
         confidence: resp.confidence.clamp(0.0, 1.0),
-        rationale,
+        rationale: trim_rationale(&resp.rationale),
     })
+}
+
+// --- audit (re-checking already-classified papers) ---------------------
+
+/// The item's collection memberships that count as "real" filing: every
+/// membership whose path does not start at the Unclassified root.
+/// Returns (collection key, nested path) pairs.
+pub fn audit_memberships(item: &Item, library: &Library) -> Vec<(String, Vec<String>)> {
+    item.collection_keys
+        .iter()
+        .filter_map(|key| {
+            let path = library.collection_path(key)?;
+            if path.first().is_some_and(|root| eq_ci(root, UNCLASSIFIED_COLLECTION)) {
+                return None;
+            }
+            Some((key.clone(), path))
+        })
+        .collect()
+}
+
+/// Build the audit request for one item. `None` when the item has no real
+/// filing to audit (it belongs in the Unclassified flow instead).
+pub fn build_audit_request(item: &Item, library: &Library) -> Option<AuditRequest> {
+    let memberships = audit_memberships(item, library);
+    if memberships.is_empty() {
+        return None;
+    }
+    let base = build_request(item, library);
+    Some(AuditRequest {
+        title: base.title,
+        creators: base.creators,
+        year: base.year,
+        publication: base.publication,
+        abstract_text: base.abstract_text,
+        tags: base.tags,
+        current_paths: memberships.into_iter().map(|(_, p)| p).collect(),
+        existing_paths: base.existing_paths,
+    })
+}
+
+/// Turn an audit answer into a move proposal.
+///
+/// `Ok(None)` means "leave the paper where it is" — either the model judged
+/// the current filing fine, or its proposal normalized to a path the paper
+/// is already in.
+pub fn audit_to_proposal(
+    item: &Item,
+    resp: AuditResponse,
+    library: &Library,
+) -> Result<Option<AuditProposal>> {
+    if !resp.misplaced {
+        return Ok(None);
+    }
+    let (path, is_new) = normalize_path(&resp.path, library)?;
+    let memberships = audit_memberships(item, library);
+    let already_there = memberships.iter().any(|(_, current)| {
+        current.len() == path.len()
+            && current.iter().zip(&path).all(|(a, b)| eq_ci(a, b))
+    });
+    if already_there {
+        return Ok(None);
+    }
+    Ok(Some(AuditProposal {
+        item_key: item.key.clone(),
+        current_paths: memberships.iter().map(|(_, p)| p.clone()).collect(),
+        current_keys: memberships.into_iter().map(|(k, _)| k).collect(),
+        proposed_path: path,
+        is_new_collection: is_new,
+        confidence: resp.confidence.clamp(0.0, 1.0),
+        rationale: trim_rationale(&resp.rationale),
+    }))
 }

@@ -60,6 +60,33 @@ pub struct ClassifyResponse {
     pub rationale: String,
 }
 
+/// Audit of an already-classified paper: is its current filing appropriate?
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct AuditRequest {
+    pub title: String,
+    pub creators: Vec<String>,
+    pub year: Option<i32>,
+    pub publication: Option<String>,
+    pub abstract_text: Option<String>,
+    pub tags: Vec<String>,
+    /// Collections the paper currently belongs to (nested paths, root →
+    /// leaf; the Unclassified tree is excluded by the caller).
+    pub current_paths: Vec<Vec<String>>,
+    /// Every existing collection path (Unclassified excluded).
+    pub existing_paths: Vec<Vec<String>>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct AuditResponse {
+    /// True only when NO current collection is a reasonable home.
+    pub misplaced: bool,
+    /// Proposed path when misplaced; empty otherwise.
+    pub path: Vec<String>,
+    /// 0.0–1.0
+    pub confidence: f64,
+    pub rationale: String,
+}
+
 /// JSON Schema for `ClassifyResponse`, shared by both clients.
 pub fn classify_schema() -> serde_json::Value {
     serde_json::json!({
@@ -75,6 +102,28 @@ pub fn classify_schema() -> serde_json::Value {
             "rationale": { "type": "string" }
         },
         "required": ["path", "is_new", "confidence", "rationale"],
+        "additionalProperties": false
+    })
+}
+
+/// JSON Schema for `AuditResponse`, shared by both clients.
+pub fn audit_schema() -> serde_json::Value {
+    serde_json::json!({
+        "type": "object",
+        "properties": {
+            "misplaced": {
+                "type": "boolean",
+                "description": "True only when no current collection fits the paper"
+            },
+            "path": {
+                "type": "array",
+                "items": { "type": "string" },
+                "description": "Proposed collection path, root to leaf; empty when misplaced is false"
+            },
+            "confidence": { "type": "number" },
+            "rationale": { "type": "string" }
+        },
+        "required": ["misplaced", "path", "confidence", "rationale"],
         "additionalProperties": false
     })
 }
@@ -161,6 +210,53 @@ pub fn classify_prompt(req: &ClassifyRequest) -> String {
     )
 }
 
+pub fn audit_prompt(req: &AuditRequest) -> String {
+    let format_paths = |paths: &[Vec<String>], empty: &str| {
+        if paths.is_empty() {
+            empty.to_string()
+        } else {
+            paths
+                .iter()
+                .map(|p| format!("- {}", p.join(" / ")))
+                .collect::<Vec<_>>()
+                .join("\n")
+        }
+    };
+    let existing = format_paths(&req.existing_paths, "(no collections exist yet)");
+    let current = format_paths(&req.current_paths, "(none)");
+    let tags = if req.tags.is_empty() {
+        String::new()
+    } else {
+        format!("Tags: {}\n", req.tags.join(", "))
+    };
+    format!(
+        "You are auditing how a researcher's paper library is filed. Decide\n\
+         whether the paper below is appropriately filed where it is.\n\n\
+         Existing collections (full nested paths):\n{existing}\n\n\
+         The paper is currently filed in:\n{current}\n\n\
+         Rules:\n\
+         1. Be conservative — reorganizing has a cost. If ANY current\n\
+            collection is a reasonable home for this paper, answer\n\
+            misplaced=false. Do not flag borderline cases or stylistic\n\
+            preferences.\n\
+         2. Answer misplaced=true ONLY when no current collection fits the\n\
+            paper's topic at all (e.g. an NLP paper filed under Hardware).\n\
+         3. When misplaced=true, propose the best path: STRONGLY prefer an\n\
+            existing collection; only when nothing fits, propose a new path\n\
+            (max 3 levels, extending an existing path by at most one new\n\
+            level). Never propose \"Unclassified\".\n\
+         4. When misplaced=false, return an empty path array.\n\n\
+         Paper:\n{meta}{tags}",
+        meta = meta_block(
+            &req.title,
+            &req.creators,
+            req.year,
+            req.publication.as_deref(),
+            req.abstract_text.as_deref(),
+        ),
+    )
+}
+
 /// Enum dispatch over the concrete providers.
 pub enum AnyProvider {
     Gemini(GeminiClient),
@@ -193,6 +289,13 @@ impl AnyProvider {
         match self {
             AnyProvider::Gemini(c) => c.classify(req).await,
             AnyProvider::Anthropic(c) => c.classify(req).await,
+        }
+    }
+
+    pub async fn audit(&self, req: &AuditRequest) -> Result<AuditResponse> {
+        match self {
+            AnyProvider::Gemini(c) => c.audit(req).await,
+            AnyProvider::Anthropic(c) => c.audit(req).await,
         }
     }
 }

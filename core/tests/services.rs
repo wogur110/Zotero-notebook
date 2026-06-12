@@ -1,8 +1,10 @@
 //! Unit tests for the pure service modules: classification normalization,
 //! settings persistence, and the summaries DB.
 
-use zn_core::classify::{build_request, normalize_response, to_proposal};
-use zn_core::llm::provider::ClassifyResponse;
+use zn_core::classify::{
+    audit_to_proposal, build_audit_request, build_request, normalize_response, to_proposal,
+};
+use zn_core::llm::provider::{AuditResponse, ClassifyResponse};
 use zn_core::models::{
     AppSettings, Collection, Item, Library, ProviderId, StoredSummary,
 };
@@ -123,6 +125,73 @@ fn proposal_clamps_confidence_and_truncates_rationale() {
     assert!((p.confidence - 1.0).abs() < 1e-9);
     assert!(p.rationale.len() <= 504, "truncated with ellipsis");
     assert!(!p.is_new_collection);
+}
+
+fn audit_resp(misplaced: bool, path: &[&str]) -> AuditResponse {
+    AuditResponse {
+        misplaced,
+        path: path.iter().map(|s| s.to_string()).collect(),
+        confidence: 0.7,
+        rationale: "reason".into(),
+    }
+}
+
+#[test]
+fn audit_request_excludes_unclassified_and_skips_unfiled() {
+    let mut lib = library();
+    // I1 currently in Diffusion Models + Unclassified.
+    lib.items[0].collection_keys = vec!["DM".into(), "UNC".into()];
+    let req = build_audit_request(&lib.items[0], &lib).unwrap();
+    assert_eq!(
+        req.current_paths,
+        vec![vec!["Computer Vision".to_string(), "Diffusion Models".to_string()]],
+        "Unclassified membership is not part of the audited filing"
+    );
+
+    // An item only in Unclassified (or unfiled) has nothing to audit.
+    lib.items[0].collection_keys = vec!["UNC".into()];
+    assert!(build_audit_request(&lib.items[0], &lib).is_none());
+    lib.items[0].collection_keys = vec![];
+    assert!(build_audit_request(&lib.items[0], &lib).is_none());
+}
+
+#[test]
+fn audit_not_misplaced_yields_no_proposal() {
+    let mut lib = library();
+    lib.items[0].collection_keys = vec!["DM".into()];
+    let out = audit_to_proposal(&lib.items[0], audit_resp(false, &[]), &lib).unwrap();
+    assert!(out.is_none());
+}
+
+#[test]
+fn audit_proposal_matching_current_path_is_dropped() {
+    let mut lib = library();
+    lib.items[0].collection_keys = vec!["DM".into()];
+    // Model says misplaced but proposes (case-insensitively) where it already is.
+    let out = audit_to_proposal(
+        &lib.items[0],
+        audit_resp(true, &["computer vision", "DIFFUSION MODELS"]),
+        &lib,
+    )
+    .unwrap();
+    assert!(out.is_none());
+}
+
+#[test]
+fn audit_proposal_carries_current_keys_and_normalized_target() {
+    let mut lib = library();
+    lib.items[0].collection_keys = vec!["DM".into(), "UNC".into()];
+    let out = audit_to_proposal(
+        &lib.items[0],
+        audit_resp(true, &["nlp"]),
+        &lib,
+    )
+    .unwrap()
+    .unwrap();
+    assert_eq!(out.proposed_path, vec!["NLP"], "canonicalized to existing casing");
+    assert!(!out.is_new_collection);
+    assert_eq!(out.current_keys, vec!["DM"], "only real memberships are replaced");
+    assert_eq!(out.current_paths.len(), 1);
 }
 
 #[test]
