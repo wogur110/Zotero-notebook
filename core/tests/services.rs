@@ -332,7 +332,7 @@ fn reading_state_upsert_get_delete() {
 
     let s = ReadingState {
         item_key: "K1".into(),
-        status: ReadingStatus::ToRead,
+        status: Some(ReadingStatus::ToRead),
         starred: true,
         note: "read after the deadline".into(),
         updated_at: "2026-06-24T00:00:00Z".into(),
@@ -343,19 +343,38 @@ fn reading_state_upsert_get_delete() {
 
     // Upsert overwrites in place (still one row).
     let updated = ReadingState {
-        status: ReadingStatus::Read,
+        status: Some(ReadingStatus::Read),
         starred: false,
         ..s
     };
     db.upsert_reading_state(&updated).unwrap();
     let all = db.all_reading_states().unwrap();
     assert_eq!(all.len(), 1);
-    assert_eq!(all[0].status, ReadingStatus::Read);
+    assert_eq!(all[0].status, Some(ReadingStatus::Read));
     assert!(!all[0].starred);
 
     // Delete = untrack.
     db.delete_reading_state("K1").unwrap();
     assert!(db.all_reading_states().unwrap().is_empty());
+}
+
+#[test]
+fn reading_state_starred_without_status_roundtrips() {
+    use zn_core::models::ReadingState;
+    let db = Db::open_in_memory().unwrap();
+    // Star a paper with no reading status at all (the decoupled-star case).
+    let s = ReadingState {
+        item_key: "K2".into(),
+        status: None,
+        starred: true,
+        note: String::new(),
+        updated_at: "2026-06-25T00:00:00Z".into(),
+    };
+    db.upsert_reading_state(&s).unwrap();
+    let all = db.all_reading_states().unwrap();
+    assert_eq!(all.len(), 1);
+    assert_eq!(all[0].status, None, "no status persists as None, not ToRead");
+    assert!(all[0].starred);
 }
 
 #[test]

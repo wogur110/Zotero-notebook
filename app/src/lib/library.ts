@@ -151,18 +151,19 @@ export const READING_STATUS_LABEL: Record<ReadingStatus, string> = {
 };
 
 /**
- * The active reading queue: items marked "to read" or "reading" (not yet
- * "read"), ordered starred-first, then reading before to-read, then by title.
+ * The active reading queue: items explicitly marked "to read" or "reading"
+ * (a bare star with no status does NOT pull a paper in here), ordered
+ * starred-first, then reading before to-read, then by title.
  */
 export function queueItems(
   library: Library,
   states: Map<string, ReadingState>,
 ): Item[] {
-  const rank = (s: ReadingStatus): number => (s === "reading" ? 0 : 1);
+  const rank = (s: ReadingStatus | null): number => (s === "reading" ? 0 : 1);
   return library.items
     .filter((i) => {
       const st = states.get(i.key);
-      return st !== undefined && st.status !== "read";
+      return st?.status === "to_read" || st?.status === "reading";
     })
     .sort((a, b) => {
       const sa = states.get(a.key)!;
@@ -172,6 +173,14 @@ export function queueItems(
       if (r !== 0) return r;
       return a.title.localeCompare(b.title, undefined, { sensitivity: "base" });
     });
+}
+
+/** Every starred ("important") paper, regardless of reading status. */
+export function starredItems(
+  library: Library,
+  states: Map<string, ReadingState>,
+): Item[] {
+  return library.items.filter((i) => states.get(i.key)?.starred === true);
 }
 
 export function formatAuthors(creators: string[], max = 3): string {

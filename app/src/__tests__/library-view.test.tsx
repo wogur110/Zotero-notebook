@@ -108,6 +108,7 @@ describe("Sidebar", () => {
         selection={{ kind: "all" }}
         unclassifiedCount={2}
         queueCount={0}
+        starredCount={0}
         onSelect={onSelect}
       />,
     );

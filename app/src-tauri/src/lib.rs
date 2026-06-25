@@ -499,10 +499,10 @@ async fn fetch_citation_graph(
     Ok(graph)
 }
 
-/// Set (or clear) one item's reading state. When `status` is None and the item
-/// is neither starred nor noted, the row is deleted (untracked); otherwise it
-/// is upserted (a starred/noted item with no explicit status defaults to "to
-/// read"). Returns the resulting state, or null when cleared.
+/// Set (or clear) one item's reading state. Status, star, and note are
+/// independent: a paper can be starred with no reading status (starring never
+/// forces a status). When all three are empty the row is deleted (untracked).
+/// Returns the resulting state, or null when cleared.
 #[tauri::command]
 fn set_reading_state(
     state: State<'_, AppState>,
@@ -519,7 +519,7 @@ fn set_reading_state(
     }
     let s = ReadingState {
         item_key,
-        status: status.unwrap_or(ReadingStatus::ToRead),
+        status,
         starred,
         note,
         updated_at: chrono::Utc::now().to_rfc3339(),

@@ -13,7 +13,7 @@ import type {
   UsageSummary,
   ZoteroStatus,
 } from "./types";
-import { queueItems, unclassifiedItems } from "./lib/library";
+import { queueItems, starredItems, unclassifiedItems } from "./lib/library";
 import Sidebar from "./components/Sidebar";
 import Topbar from "./components/Topbar";
 import SearchPalette from "./components/SearchPalette";
@@ -29,6 +29,7 @@ export type Selection =
   | { kind: "all" }
   | { kind: "unclassified" }
   | { kind: "queue" }
+  | { kind: "starred" }
   | { kind: "collection"; key: string };
 
 export type MainView = "library" | "settings";
@@ -83,6 +84,26 @@ export default function App() {
       });
     },
     [],
+  );
+
+  // One-click star toggle from a list row: flip `starred`, keep the existing
+  // status/note. Optimistic, persisted to the sidecar.
+  const toggleStar = useCallback(
+    async (itemKey: string) => {
+      const cur = readingStates.get(itemKey);
+      try {
+        const next = await api.setReadingState(
+          itemKey,
+          cur?.status ?? null,
+          !(cur?.starred ?? false),
+          cur?.note ?? "",
+        );
+        applyReadingState(itemKey, next);
+      } catch {
+        /* best-effort; the star simply won't toggle */
+      }
+    },
+    [readingStates, applyReadingState],
   );
 
   const refreshLibrary = useCallback(async () => {
@@ -182,6 +203,10 @@ export default function App() {
     () => queueItems(library, readingStates),
     [library, readingStates],
   );
+  const starred = useMemo(
+    () => starredItems(library, readingStates),
+    [library, readingStates],
+  );
   const newImports = useMemo(
     () => unclassified.filter((i) => newImportKeys.has(i.key)),
     [unclassified, newImportKeys],
@@ -221,6 +246,7 @@ export default function App() {
         selection={selection}
         unclassifiedCount={unclassified.length}
         queueCount={queue.length}
+        starredCount={starred.length}
         onSelect={(sel) => {
           setSelection(sel);
           setView("library");
@@ -281,6 +307,7 @@ export default function App() {
               defaultProvider={settings?.defaultProvider ?? "gemini"}
               summarizedKeys={summarizedKeys}
               readingStates={readingStates}
+              onToggleStar={toggleStar}
               onOpenItem={setOpenItemKey}
               onRetry={refreshLibrary}
               onApplied={refreshLibrary}

@@ -328,14 +328,18 @@ impl ReadingStatus {
 }
 
 /// The app-owned reading state for one item: where it sits in the workflow, a
-/// priority star, and a free-text personal note. A row exists only once the
-/// user assigns something; clearing all three deletes it (untracked).
+/// priority/important star, and a free-text personal note. A row exists once
+/// the user assigns any of the three; clearing all of them deletes it. The
+/// status, the star, and the note are independent — a paper can be starred
+/// with no reading status, and starring never forces a status.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub struct ReadingState {
     pub item_key: String,
-    pub status: ReadingStatus,
-    /// High-priority flag (a star), independent of the status.
+    /// Reading-workflow status, or `None` when the item is only starred/noted.
+    pub status: Option<ReadingStatus>,
+    /// Important/priority flag (a star), independent of the status. Powers the
+    /// Starred view.
     pub starred: bool,
     /// Personal note; empty string when none.
     pub note: String,

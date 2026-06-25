@@ -172,9 +172,10 @@ impl Db {
         Ok(())
     }
 
-    /// Every reading-state row — the whole reading queue. Loaded once and held
-    /// in the frontend (libraries are a few thousand items at most). Rows with
-    /// an unrecognized status string are skipped defensively.
+    /// Every reading-state row (status / star / note per item). Loaded once and
+    /// held in the frontend (libraries are a few thousand items at most). An
+    /// empty or unrecognized status string parses to `None` (item is only
+    /// starred/noted).
     pub fn all_reading_states(&self) -> Result<Vec<ReadingState>> {
         let mut stmt = self.conn.prepare(
             "SELECT item_key, status, starred, note, updated_at FROM reading_state",
@@ -192,15 +193,13 @@ impl Db {
         let mut out = Vec::new();
         for row in rows {
             let (item_key, status_raw, starred, note, updated_at) = row?;
-            if let Some(status) = ReadingStatus::parse(&status_raw) {
-                out.push(ReadingState {
-                    item_key,
-                    status,
-                    starred,
-                    note,
-                    updated_at,
-                });
-            }
+            out.push(ReadingState {
+                item_key,
+                status: ReadingStatus::parse(&status_raw),
+                starred,
+                note,
+                updated_at,
+            });
         }
         Ok(out)
     }
@@ -216,7 +215,8 @@ impl Db {
                updated_at = excluded.updated_at",
             (
                 &s.item_key,
-                s.status.as_str(),
+                // None -> "" (the row still exists for the star/note).
+                s.status.map(|x| x.as_str()).unwrap_or(""),
                 s.starred,
                 &s.note,
                 &s.updated_at,

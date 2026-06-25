@@ -23,8 +23,10 @@ interface Props {
   selectedKeys?: Set<string>;
   onToggleSelect?: (key: string) => void;
   onSelectAll?: (keys: string[], select: boolean) => void;
-  /** When provided, a reading-status/star column is shown. */
+  /** When provided, a reading-status column is shown. */
   readingStates?: Map<string, ReadingState>;
+  /** When provided (with readingStates), each row gets a one-click star. */
+  onToggleStar?: (key: string) => void;
 }
 
 export function relativeDate(iso: string | null): string {
@@ -48,11 +50,13 @@ export default function ItemTable({
   onToggleSelect,
   onSelectAll,
   readingStates,
+  onToggleStar,
 }: Props) {
   const [sortKey, setSortKey] = useState<SortKey>("added");
   const [asc, setAsc] = useState(false);
   const selectable = !!selectedKeys && !!onToggleSelect && !!onSelectAll;
   const showStatus = !!readingStates;
+  const starrable = !!readingStates && !!onToggleStar;
 
   const sorted = useMemo(() => {
     const copy = [...items];
@@ -115,8 +119,18 @@ export default function ItemTable({
             />
           </span>
         )}
+        {starrable && (
+          <span
+            className={`flex shrink-0 items-center ${selectable ? "" : "pl-6"}`}
+            aria-hidden
+          >
+            <IconStar size={12} />
+          </span>
+        )}
         <button
-          className={`flex-1 text-left hover:text-muted ${selectable ? "" : "pl-6"}`}
+          className={`flex-1 text-left hover:text-muted ${
+            selectable || starrable ? "" : "pl-6"
+          }`}
           onClick={() => onSort("title")}
         >
           Title{arrow("title")}
@@ -139,6 +153,8 @@ export default function ItemTable({
             selectable={selectable}
             selected={selectable ? selectedKeys!.has(item.key) : false}
             onToggleSelect={onToggleSelect}
+            starrable={starrable}
+            onToggleStar={onToggleStar}
             showStatus={showStatus}
             state={readingStates?.get(item.key)}
           />
@@ -173,22 +189,18 @@ function SelectAllCheckbox({
   );
 }
 
-const STATUS_STYLE: Record<ReadingState["status"], string> = {
+const STATUS_STYLE: Record<NonNullable<ReadingState["status"]>, string> = {
   to_read: "bg-inset text-muted",
   reading: "bg-accent-soft text-accent",
   read: "bg-ok-soft text-ok",
 };
 
-/** Compact reading-status badge + priority star for a table row. */
+/** Compact reading-status badge for a table row (the star is its own cell). */
 function StatusCell({ state }: { state?: ReadingState }) {
-  if (!state) return <span className="w-[92px] shrink-0" aria-hidden />;
+  if (!state || !state.status)
+    return <span className="w-[92px] shrink-0" aria-hidden />;
   return (
-    <span className="flex w-[92px] shrink-0 items-center gap-1">
-      {state.starred && (
-        <span className="text-accent" title="Priority">
-          <IconStar size={12} fill="currentColor" strokeWidth={0} />
-        </span>
-      )}
+    <span className="flex w-[92px] shrink-0 items-center">
       <span className={`badge ${STATUS_STYLE[state.status]}`}>
         {READING_STATUS_LABEL[state.status]}
       </span>
@@ -202,6 +214,8 @@ const Row = memo(function Row({
   selectable,
   selected,
   onToggleSelect,
+  starrable,
+  onToggleStar,
   showStatus,
   state,
 }: {
@@ -210,9 +224,12 @@ const Row = memo(function Row({
   selectable: boolean;
   selected: boolean;
   onToggleSelect?: (key: string) => void;
+  starrable: boolean;
+  onToggleStar?: (key: string) => void;
   showStatus: boolean;
   state?: ReadingState;
 }) {
+  const starred = !!state?.starred;
   return (
     <li
       className={`group flex items-center border-b border-edge transition-colors ${
@@ -231,10 +248,31 @@ const Row = memo(function Row({
           />
         </label>
       )}
+      {starrable && (
+        <button
+          onClick={() => onToggleStar?.(item.key)}
+          aria-label={starred ? `Unstar ${item.title}` : `Star ${item.title}`}
+          aria-pressed={starred}
+          title={starred ? "Starred — click to unstar" : "Star this paper"}
+          className={`flex shrink-0 items-center py-2.5 pr-1 ${
+            selectable ? "pl-1" : "pl-6"
+          } ${
+            starred
+              ? "text-accent"
+              : "text-faint opacity-0 transition-opacity group-hover:opacity-100 hover:text-accent"
+          }`}
+        >
+          <IconStar
+            size={15}
+            fill={starred ? "currentColor" : "none"}
+            strokeWidth={starred ? 0 : 1.5}
+          />
+        </button>
+      )}
       <button
         onClick={() => onOpen(item.key)}
         className={`flex min-w-0 flex-1 items-center gap-3 py-2.5 pr-6 text-left transition-colors hover:bg-inset ${
-          selectable ? "pl-2" : "pl-6"
+          selectable || starrable ? "pl-2" : "pl-6"
         }`}
       >
         <div className="min-w-0 flex-1">

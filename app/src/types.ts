@@ -114,7 +114,9 @@ export type ReadingStatus = "to_read" | "reading" | "read";
 
 export interface ReadingState {
   itemKey: string;
-  status: ReadingStatus;
+  /** Reading-workflow status, or null when the item is only starred/noted. */
+  status: ReadingStatus | null;
+  /** Important/priority flag; powers the Starred view, independent of status. */
   starred: boolean;
   note: string;
   updatedAt: string;

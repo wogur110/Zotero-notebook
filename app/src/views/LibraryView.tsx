@@ -6,6 +6,7 @@ import {
   collectionPath,
   itemsForCollection,
   queueItems,
+  starredItems,
 } from "../lib/library";
 import ItemTable from "../components/ItemTable";
 import AuditFlow from "./AuditFlow";
@@ -28,6 +29,8 @@ interface Props {
   summarizedKeys: Set<string>;
   /** Reading state per item key (status badge column + the queue view). */
   readingStates: Map<string, ReadingState>;
+  /** Toggle a paper's priority star from a list row. */
+  onToggleStar?: (key: string) => void;
   onOpenItem: (key: string) => void;
   onRetry: () => void;
   onApplied: () => void;
@@ -42,6 +45,7 @@ export default function LibraryView({
   defaultProvider,
   summarizedKeys,
   readingStates,
+  onToggleStar,
   onOpenItem,
   onRetry,
   onApplied,
@@ -64,7 +68,9 @@ export default function LibraryView({
         ? itemsForCollection(library, selection.key)
         : selection.kind === "queue"
           ? queueItems(library, readingStates)
-          : library.items,
+          : selection.kind === "starred"
+            ? starredItems(library, readingStates)
+            : library.items,
     [library, selection, readingStates],
   );
   const path =
@@ -74,9 +80,11 @@ export default function LibraryView({
   const scopeLabel =
     selection.kind === "queue"
       ? "Reading queue"
-      : path.length === 0
-        ? "All Papers"
-        : path.join(" / ");
+      : selection.kind === "starred"
+        ? "Starred"
+        : path.length === 0
+          ? "All Papers"
+          : path.join(" / ");
   const auditable = useMemo(
     () => auditableItems(library, items),
     [library, items],
@@ -255,15 +263,20 @@ export default function LibraryView({
           onToggleSelect={toggleSelect}
           onSelectAll={selectAll}
           readingStates={readingStates}
+          onToggleStar={onToggleStar}
           emptyTitle={
             selection.kind === "queue"
               ? "Your reading queue is empty"
-              : "No papers here"
+              : selection.kind === "starred"
+                ? "No starred papers yet"
+                : "No papers here"
           }
           emptyHint={
             selection.kind === "queue"
               ? "Open a paper and set it to “To read” or “Reading” to add it here."
-              : "Papers added to this collection in Zotero will show up after a refresh."
+              : selection.kind === "starred"
+                ? "Click the ☆ on any paper (in the list or its popup) to star it."
+                : "Papers added to this collection in Zotero will show up after a refresh."
           }
         />
       </div>

@@ -9,6 +9,7 @@ import {
   IconFolderOpen,
   IconInbox,
   IconLibrary,
+  IconStar,
 } from "./icons";
 
 interface Props {
@@ -16,6 +17,7 @@ interface Props {
   selection: Selection;
   unclassifiedCount: number;
   queueCount: number;
+  starredCount: number;
   onSelect: (sel: Selection) => void;
 }
 
@@ -24,6 +26,7 @@ export default function Sidebar({
   selection,
   unclassifiedCount,
   queueCount,
+  starredCount,
   onSelect,
 }: Props) {
   // The top-level "Unclassified" collection is represented by the dedicated
@@ -108,6 +111,19 @@ export default function Sidebar({
               queueCount > 0 ? (
                 <span className="badge bg-accent-soft text-accent">
                   {queueCount}
+                </span>
+              ) : undefined
+            }
+          />
+          <SidebarRow
+            icon={<IconStar size={16} />}
+            label="Starred"
+            selected={selection.kind === "starred"}
+            onClick={() => onSelect({ kind: "starred" })}
+            trailing={
+              starredCount > 0 ? (
+                <span className="badge bg-accent-soft text-accent">
+                  {starredCount}
                 </span>
               ) : undefined
             }
