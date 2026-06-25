@@ -6,7 +6,9 @@ use std::path::Path;
 use rusqlite::{Connection, OptionalExtension};
 
 use crate::error::Result;
-use crate::models::{StoredSummary, SummarySource};
+use crate::models::{
+    ReadingState, ReadingStatus, StoredSummary, SummarySource, UsageSummary,
+};
 
 pub struct Db {
     conn: Connection,
@@ -21,6 +23,28 @@ CREATE TABLE IF NOT EXISTS summaries (
     created_at   TEXT NOT NULL,
     had_abstract INTEGER NOT NULL DEFAULT 1,
     source       TEXT NOT NULL DEFAULT ''
+);
+CREATE TABLE IF NOT EXISTS reading_state (
+    item_key   TEXT PRIMARY KEY,
+    status     TEXT NOT NULL,
+    starred    INTEGER NOT NULL DEFAULT 0,
+    note       TEXT NOT NULL DEFAULT '',
+    updated_at TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS citation_cache (
+    item_key   TEXT PRIMARY KEY,
+    graph_json TEXT NOT NULL,
+    fetched_at TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS usage_log (
+    id            INTEGER PRIMARY KEY AUTOINCREMENT,
+    op            TEXT NOT NULL,
+    provider      TEXT NOT NULL,
+    model         TEXT NOT NULL,
+    input_tokens  INTEGER NOT NULL,
+    output_tokens INTEGER NOT NULL,
+    cost_usd      REAL NOT NULL,
+    created_at    TEXT NOT NULL
 );
 ";
 
@@ -146,5 +170,134 @@ impl Db {
             ),
         )?;
         Ok(())
+    }
+
+    /// Every reading-state row — the whole reading queue. Loaded once and held
+    /// in the frontend (libraries are a few thousand items at most). Rows with
+    /// an unrecognized status string are skipped defensively.
+    pub fn all_reading_states(&self) -> Result<Vec<ReadingState>> {
+        let mut stmt = self.conn.prepare(
+            "SELECT item_key, status, starred, note, updated_at FROM reading_state",
+        )?;
+        let rows = stmt.query_map([], |r| {
+            let status_raw: String = r.get(1)?;
+            Ok((
+                r.get::<_, String>(0)?,
+                status_raw,
+                r.get::<_, bool>(2)?,
+                r.get::<_, String>(3)?,
+                r.get::<_, String>(4)?,
+            ))
+        })?;
+        let mut out = Vec::new();
+        for row in rows {
+            let (item_key, status_raw, starred, note, updated_at) = row?;
+            if let Some(status) = ReadingStatus::parse(&status_raw) {
+                out.push(ReadingState {
+                    item_key,
+                    status,
+                    starred,
+                    note,
+                    updated_at,
+                });
+            }
+        }
+        Ok(out)
+    }
+
+    pub fn upsert_reading_state(&self, s: &ReadingState) -> Result<()> {
+        self.conn.execute(
+            "INSERT INTO reading_state (item_key, status, starred, note, updated_at)
+             VALUES (?1, ?2, ?3, ?4, ?5)
+             ON CONFLICT(item_key) DO UPDATE SET
+               status = excluded.status,
+               starred = excluded.starred,
+               note = excluded.note,
+               updated_at = excluded.updated_at",
+            (
+                &s.item_key,
+                s.status.as_str(),
+                s.starred,
+                &s.note,
+                &s.updated_at,
+            ),
+        )?;
+        Ok(())
+    }
+
+    pub fn delete_reading_state(&self, item_key: &str) -> Result<()> {
+        self.conn
+            .execute("DELETE FROM reading_state WHERE item_key = ?1", [item_key])?;
+        Ok(())
+    }
+
+    /// Cached citation graph for an item as `(graph_json, fetched_at)`, or None
+    /// when never fetched. The caller decides whether `fetched_at` is too old.
+    pub fn get_citation_cache(&self, item_key: &str) -> Result<Option<(String, String)>> {
+        let row = self
+            .conn
+            .query_row(
+                "SELECT graph_json, fetched_at FROM citation_cache WHERE item_key = ?1",
+                [item_key],
+                |r| Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?)),
+            )
+            .optional()?;
+        Ok(row)
+    }
+
+    pub fn upsert_citation_cache(
+        &self,
+        item_key: &str,
+        graph_json: &str,
+        fetched_at: &str,
+    ) -> Result<()> {
+        self.conn.execute(
+            "INSERT INTO citation_cache (item_key, graph_json, fetched_at)
+             VALUES (?1, ?2, ?3)
+             ON CONFLICT(item_key) DO UPDATE SET
+               graph_json = excluded.graph_json,
+               fetched_at = excluded.fetched_at",
+            (item_key, graph_json, fetched_at),
+        )?;
+        Ok(())
+    }
+
+    /// Append one row to the AI usage/cost ledger.
+    #[allow(clippy::too_many_arguments)]
+    pub fn insert_usage(
+        &self,
+        op: &str,
+        provider: &str,
+        model: &str,
+        input_tokens: u32,
+        output_tokens: u32,
+        cost_usd: f64,
+        created_at: &str,
+    ) -> Result<()> {
+        self.conn.execute(
+            "INSERT INTO usage_log (op, provider, model, input_tokens, output_tokens, cost_usd, created_at)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+            (op, provider, model, input_tokens, output_tokens, cost_usd, created_at),
+        )?;
+        Ok(())
+    }
+
+    /// Cumulative token/cost totals across the whole ledger.
+    pub fn usage_summary(&self) -> Result<UsageSummary> {
+        let summary = self.conn.query_row(
+            "SELECT COALESCE(SUM(input_tokens), 0), COALESCE(SUM(output_tokens), 0),
+                    COALESCE(SUM(cost_usd), 0.0), COUNT(*)
+             FROM usage_log",
+            [],
+            |r| {
+                Ok(UsageSummary {
+                    total_input_tokens: r.get(0)?,
+                    total_output_tokens: r.get(1)?,
+                    total_cost_usd: r.get(2)?,
+                    operation_count: r.get(3)?,
+                })
+            },
+        )?;
+        Ok(summary)
     }
 }

@@ -109,9 +109,51 @@ export interface ChatMessage {
   content: string;
 }
 
+/** Where a paper sits in the user's reading workflow (local sidecar only). */
+export type ReadingStatus = "to_read" | "reading" | "read";
+
+export interface ReadingState {
+  itemKey: string;
+  status: ReadingStatus;
+  starred: boolean;
+  note: string;
+  updatedAt: string;
+}
+
 export interface ChatDelta {
   itemKey: string;
   delta: string;
+}
+
+/** Streaming payload for multi-paper synthesis / Q&A (no item key). */
+export interface SynthesisDelta {
+  delta: string;
+}
+
+/** Cumulative AI token/cost totals (cloud cost is an approximate estimate). */
+export interface UsageSummary {
+  totalInputTokens: number;
+  totalOutputTokens: number;
+  totalCostUsd: number;
+  operationCount: number;
+}
+
+/** One paper in a citation graph, tagged with library membership. */
+export interface RelatedPaper {
+  title: string;
+  doi: string | null;
+  year: number | null;
+  citedByCount: number;
+  /** The Zotero item key when already in the library, else null. */
+  inLibraryKey: string | null;
+}
+
+export interface CitationGraph {
+  references: RelatedPaper[];
+  citations: RelatedPaper[];
+  citedByCount: number;
+  /** True when there was no DOI, or OpenAlex could not be reached. */
+  fetchFailed: boolean;
 }
 
 export interface AppSettings {

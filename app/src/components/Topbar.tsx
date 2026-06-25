@@ -1,9 +1,16 @@
 import type { MainView } from "../App";
-import type { ZoteroStatus } from "../types";
-import { IconDot, IconGear, IconRefresh, IconSearch } from "./icons";
+import type { UsageSummary, ZoteroStatus } from "../types";
+import {
+  IconDollar,
+  IconDot,
+  IconGear,
+  IconRefresh,
+  IconSearch,
+} from "./icons";
 
 interface Props {
   status: ZoteroStatus | null;
+  usage: UsageSummary | null;
   refreshing: boolean;
   view: MainView;
   onRefresh: () => void;
@@ -13,6 +20,7 @@ interface Props {
 
 export default function Topbar({
   status,
+  usage,
   refreshing,
   view,
   onRefresh,
@@ -33,6 +41,7 @@ export default function Topbar({
 
       <div className="flex-1" />
 
+      <CostPill usage={usage} />
       <StatusPill status={status} />
 
       <button
@@ -54,6 +63,25 @@ export default function Topbar({
         <IconGear size={15} />
       </button>
     </header>
+  );
+}
+
+function CostPill({ usage }: { usage: UsageSummary | null }) {
+  if (!usage || usage.operationCount === 0) return null;
+  const tokens = usage.totalInputTokens + usage.totalOutputTokens;
+  const label =
+    usage.totalCostUsd >= 0.005
+      ? `$${usage.totalCostUsd.toFixed(2)}`
+      : usage.totalCostUsd > 0
+        ? "<$0.01"
+        : "Free";
+  return (
+    <span
+      className="badge bg-inset text-muted"
+      title={`Estimated AI spend across ${usage.operationCount} ${usage.operationCount === 1 ? "operation" : "operations"} (summaries, classification, filing checks) · ${tokens.toLocaleString()} tokens (${usage.totalInputTokens.toLocaleString()} in / ${usage.totalOutputTokens.toLocaleString()} out). Approximate list-price estimate; chat is not counted.`}
+    >
+      <IconDollar size={11} /> {label}
+    </span>
   );
 }
 

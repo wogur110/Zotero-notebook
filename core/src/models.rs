@@ -366,6 +366,65 @@ pub struct ChatDelta {
     pub delta: String,
 }
 
+/// Streaming payload for the `synthesis-delta` event (multi-paper Q&A). Unlike
+/// `ChatDelta` it carries no item key — a synthesis session spans many papers
+/// and the synthesis view is the only listener.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct SynthesisDelta {
+    pub delta: String,
+}
+
+/// Aggregate token/cost totals across all tracked AI operations (cloud only;
+/// the local provider is free). Powers the topbar cost indicator. Costs are
+/// approximate list-price estimates (see `crate::pricing`).
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct UsageSummary {
+    pub total_input_tokens: i64,
+    pub total_output_tokens: i64,
+    pub total_cost_usd: f64,
+    pub operation_count: i64,
+}
+
+/// One paper in a citation graph (a reference or a citing work), tagged with
+/// whether it is already in the user's library.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct RelatedPaper {
+    pub title: String,
+    pub doi: Option<String>,
+    pub year: Option<i32>,
+    /// Citation count reported by OpenAlex — used to surface "seminal" works.
+    #[serde(default)]
+    pub cited_by_count: i64,
+    /// The Zotero item key when this paper is already in the library, else
+    /// None. Recomputed against the live library on every fetch (not cached).
+    #[serde(default)]
+    pub in_library_key: Option<String>,
+}
+
+/// The citation graph for one item: the works it cites and the works that cite
+/// it, each tagged with library membership. Suggest-only / read-only.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct CitationGraph {
+    /// Works this paper cites (its bibliography).
+    #[serde(default)]
+    pub references: Vec<RelatedPaper>,
+    /// Works that cite this paper (top by citation count).
+    #[serde(default)]
+    pub citations: Vec<RelatedPaper>,
+    /// Total citation count reported by OpenAlex (may exceed `citations.len()`).
+    #[serde(default)]
+    pub cited_by_count: i64,
+    /// True when the upstream lookup could not be performed (no DOI, or the
+    /// API failed/rate-limited) — lets the UI distinguish "couldn't fetch"
+    /// from a genuinely empty bibliography.
+    #[serde(default)]
+    pub fetch_failed: bool,
+}
+
 fn default_local_base_url() -> String {
     // Ollama's OpenAI-compatible endpoint; LM Studio uses :1234/v1.
     "http://127.0.0.1:11434/v1".into()

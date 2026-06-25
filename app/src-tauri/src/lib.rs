@@ -11,9 +11,10 @@ use tauri::{AppHandle, Emitter, Manager, State};
 use zn_core::llm::{AnyProvider, SummarizeRequest};
 use zn_core::llm::provider::{ANTHROPIC_BASE_URL, GEMINI_BASE_URL};
 use zn_core::models::{
-    AppSettings, AuditProposal, ChatDelta, ChatMessage, ClassificationDecision,
-    ClassificationProposal, Item, Library, MoveResult, ProgressEvent, ProviderId, StoredSummary,
-    SummarySource, ZoteroStatus, UNCLASSIFIED_COLLECTION,
+    AppSettings, AuditProposal, ChatDelta, ChatMessage, CitationGraph, ClassificationDecision,
+    ClassificationProposal, Item, Library, MoveResult, ProgressEvent, ProviderId, ReadingState,
+    ReadingStatus, StoredSummary, SummarySource, SynthesisDelta, UsageSummary, ZoteroStatus,
+    UNCLASSIFIED_COLLECTION,
 };
 use zn_core::zotero::{local_api, plugin_api};
 use zn_core::{classify, db, keychain, settings, Error, Result};
@@ -155,6 +156,51 @@ fn emit_progress(app: &AppHandle, event: &str, p: ProgressEvent) {
     }
 }
 
+fn model_name(llm: &AnyProvider, s: &AppSettings) -> String {
+    match llm.id() {
+        ProviderId::Gemini => s.gemini_model.clone(),
+        ProviderId::Anthropic => s.anthropic_model.clone(),
+        ProviderId::Local => s.local_model.clone(),
+    }
+}
+
+/// Record the token usage of the provider's most recent call into the usage
+/// ledger (best-effort; cloud cost is an estimate, local is free). Read the
+/// side-channel right after the `summarize`/`classify`/`audit` call.
+fn record_usage(state: &State<'_, AppState>, llm: &AnyProvider, s: &AppSettings, op: &str) {
+    let Some(u) = llm.last_usage() else { return };
+    if u.is_empty() {
+        return;
+    }
+    let model = model_name(llm, s);
+    let cost = zn_core::pricing::cost_usd(llm.id(), &model, u.input_tokens, u.output_tokens);
+    let db = state.db.lock().expect("db mutex");
+    if let Err(e) = db.insert_usage(
+        op,
+        llm.id().as_str(),
+        &model,
+        u.input_tokens,
+        u.output_tokens,
+        cost,
+        &chrono::Utc::now().to_rfc3339(),
+    ) {
+        log::warn!("failed to record usage: {e}");
+    }
+}
+
+/// Emit the current cumulative usage totals so the UI cost indicator updates.
+fn emit_usage(app: &AppHandle, state: &State<'_, AppState>) {
+    let summary = {
+        let db = state.db.lock().expect("db mutex");
+        db.usage_summary().ok()
+    };
+    if let Some(summary) = summary {
+        if let Err(e) = app.emit("usage-update", &summary) {
+            log::warn!("failed to emit usage-update: {e}");
+        }
+    }
+}
+
 // --- commands ---------------------------------------------------------
 
 #[tauri::command]
@@ -223,11 +269,8 @@ async fn do_summarize(
         body_excerpt,
     };
     let text = llm.summarize(&req).await?;
-    let model = match llm.id() {
-        ProviderId::Gemini => s.gemini_model.clone(),
-        ProviderId::Anthropic => s.anthropic_model.clone(),
-        ProviderId::Local => s.local_model.clone(),
-    };
+    record_usage(state, llm, s, "summary");
+    let model = model_name(llm, s);
     let summary = StoredSummary {
         item_key: item_key.to_string(),
         summary: text,
@@ -289,7 +332,9 @@ async fn summarize_item(
         &item_key,
         use_fulltext.unwrap_or(false),
     )
-    .await
+    .await;
+    emit_usage(&app, &state);
+    result
 }
 
 /// Batch-summarize (quick mode: metadata + abstract). Sequential, emits
@@ -349,6 +394,7 @@ async fn summarize_items(
             ),
         }
     }
+    emit_usage(&app, &state);
     Ok(done)
 }
 
@@ -356,6 +402,130 @@ async fn summarize_items(
 fn get_all_summaries(state: State<'_, AppState>) -> Result<Vec<StoredSummary>> {
     let db = state.db.lock().expect("db mutex");
     db.all_summaries()
+}
+
+/// Cumulative AI token/cost totals (also pushed live via `usage-update`).
+#[tauri::command]
+fn get_usage_summary(state: State<'_, AppState>) -> Result<UsageSummary> {
+    let db = state.db.lock().expect("db mutex");
+    db.usage_summary()
+}
+
+/// The whole reading queue (every tracked item's status/star/note).
+#[tauri::command]
+fn get_reading_states(state: State<'_, AppState>) -> Result<Vec<ReadingState>> {
+    let db = state.db.lock().expect("db mutex");
+    db.all_reading_states()
+}
+
+/// How long a cached citation graph stays fresh. References are stable and
+/// citations grow slowly, so a long TTL is fine; a manual refresh bypasses it.
+const CITATION_CACHE_TTL_DAYS: i64 = 14;
+
+fn citation_cache_stale(fetched_at: &str) -> bool {
+    match chrono::DateTime::parse_from_rfc3339(fetched_at) {
+        Ok(t) => {
+            chrono::Utc::now()
+                .signed_duration_since(t.with_timezone(&chrono::Utc))
+                .num_days()
+                >= CITATION_CACHE_TTL_DAYS
+        }
+        Err(_) => true,
+    }
+}
+
+/// The citation graph (references + citing works) for one item, each entry
+/// tagged with library membership. Read-only / suggest-only: nothing is
+/// written to Zotero. Cached in the sidecar (14-day TTL); `refresh` bypasses
+/// the cache. `fetchFailed` is set when the item has no DOI or OpenAlex could
+/// not be reached.
+#[tauri::command]
+async fn fetch_citation_graph(
+    state: State<'_, AppState>,
+    item_key: String,
+    refresh: Option<bool>,
+) -> Result<CitationGraph> {
+    let s = state.settings();
+    let library = fetch_library_any(&s).await?;
+    let item = find_item(&library, &item_key)?;
+    let doi = item.doi.as_deref().map(str::trim).filter(|d| !d.is_empty());
+
+    let cached = {
+        let db = state.db.lock().expect("db mutex");
+        db.get_citation_cache(&item_key)?
+    };
+
+    // Use the cache unless a refresh was requested or it's stale.
+    let mut graph: Option<CitationGraph> = if refresh.unwrap_or(false) {
+        None
+    } else {
+        cached
+            .filter(|(_, at)| !citation_cache_stale(at))
+            .and_then(|(json, _)| zn_core::citations::from_cache_json(&json))
+    };
+
+    if graph.is_none() {
+        let Some(doi) = doi else {
+            return Ok(CitationGraph {
+                fetch_failed: true,
+                ..Default::default()
+            });
+        };
+        let openalex = zn_core::abstract_lookup::Sources::default().openalex;
+        match zn_core::citations::fetch(&openalex, doi).await {
+            Some(g) => {
+                let json = zn_core::citations::to_cache_json(&g);
+                if !json.is_empty() {
+                    let db = state.db.lock().expect("db mutex");
+                    let _ = db.upsert_citation_cache(
+                        &item_key,
+                        &json,
+                        &chrono::Utc::now().to_rfc3339(),
+                    );
+                }
+                graph = Some(g);
+            }
+            None => {
+                return Ok(CitationGraph {
+                    fetch_failed: true,
+                    ..Default::default()
+                })
+            }
+        }
+    }
+
+    let mut graph = graph.expect("graph is Some here");
+    zn_core::citations::apply_library_match(&mut graph, &library);
+    Ok(graph)
+}
+
+/// Set (or clear) one item's reading state. When `status` is None and the item
+/// is neither starred nor noted, the row is deleted (untracked); otherwise it
+/// is upserted (a starred/noted item with no explicit status defaults to "to
+/// read"). Returns the resulting state, or null when cleared.
+#[tauri::command]
+fn set_reading_state(
+    state: State<'_, AppState>,
+    item_key: String,
+    status: Option<ReadingStatus>,
+    starred: bool,
+    note: String,
+) -> Result<Option<ReadingState>> {
+    let db = state.db.lock().expect("db mutex");
+    let note = note.trim().to_string();
+    if status.is_none() && !starred && note.is_empty() {
+        db.delete_reading_state(&item_key)?;
+        return Ok(None);
+    }
+    let s = ReadingState {
+        item_key,
+        status: status.unwrap_or(ReadingStatus::ToRead),
+        starred,
+        note,
+        updated_at: chrono::Utc::now().to_rfc3339(),
+    };
+    db.upsert_reading_state(&s)?;
+    Ok(Some(s))
 }
 
 /// One turn of the per-paper "Ask AI" chat. `history` must end with the
@@ -499,6 +669,9 @@ async fn classify_items(
             classify::to_proposal(&item, resp, &library)
         }
         .await;
+        if outcome.is_ok() {
+            record_usage(&state, &llm, &s, "classify");
+        }
         match outcome {
             Ok(p) => {
                 proposals.push(p);
@@ -527,6 +700,7 @@ async fn classify_items(
             ),
         }
     }
+    emit_usage(&app, &state);
     Ok(proposals)
 }
 
@@ -576,6 +750,9 @@ async fn audit_items(
             classify::audit_to_proposal(&item, resp, &library)
         }
         .await;
+        if outcome.is_ok() {
+            record_usage(&state, &llm, &s, "filing-check");
+        }
         match outcome {
             Ok(Some(p)) => {
                 proposals.push(p);
@@ -585,6 +762,7 @@ async fn audit_items(
             Err(e) => emit(i + 1, "error", Some(e.to_string())),
         }
     }
+    emit_usage(&app, &state);
     Ok(proposals)
 }
 
@@ -837,10 +1015,15 @@ pub fn run() {
             get_library,
             get_summary,
             get_all_summaries,
+            get_reading_states,
+            set_reading_state,
+            fetch_citation_graph,
+            get_usage_summary,
             summarize_item,
             summarize_items,
             save_summary_note,
             chat_with_item,
+            chat_with_items,
             classify_items,
             audit_items,
             apply_classifications,

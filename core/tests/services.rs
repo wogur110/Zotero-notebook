@@ -325,6 +325,78 @@ fn settings_parse_pre_local_provider_file() {
 }
 
 #[test]
+fn reading_state_upsert_get_delete() {
+    use zn_core::models::{ReadingState, ReadingStatus};
+    let db = Db::open_in_memory().unwrap();
+    assert!(db.all_reading_states().unwrap().is_empty());
+
+    let s = ReadingState {
+        item_key: "K1".into(),
+        status: ReadingStatus::ToRead,
+        starred: true,
+        note: "read after the deadline".into(),
+        updated_at: "2026-06-24T00:00:00Z".into(),
+    };
+    db.upsert_reading_state(&s).unwrap();
+    let all = db.all_reading_states().unwrap();
+    assert_eq!(all, vec![s.clone()]);
+
+    // Upsert overwrites in place (still one row).
+    let updated = ReadingState {
+        status: ReadingStatus::Read,
+        starred: false,
+        ..s
+    };
+    db.upsert_reading_state(&updated).unwrap();
+    let all = db.all_reading_states().unwrap();
+    assert_eq!(all.len(), 1);
+    assert_eq!(all[0].status, ReadingStatus::Read);
+    assert!(!all[0].starred);
+
+    // Delete = untrack.
+    db.delete_reading_state("K1").unwrap();
+    assert!(db.all_reading_states().unwrap().is_empty());
+}
+
+#[test]
+fn usage_log_accumulates_summary() {
+    let db = Db::open_in_memory().unwrap();
+    let empty = db.usage_summary().unwrap();
+    assert_eq!(empty.operation_count, 0);
+    assert_eq!(empty.total_cost_usd, 0.0);
+
+    db.insert_usage("summary", "anthropic", "claude-opus-4-8", 1000, 200, 0.030, "t1")
+        .unwrap();
+    db.insert_usage("classify", "gemini", "gemini-2.5-pro", 500, 50, 0.001125, "t2")
+        .unwrap();
+
+    let s = db.usage_summary().unwrap();
+    assert_eq!(s.operation_count, 2);
+    assert_eq!(s.total_input_tokens, 1500);
+    assert_eq!(s.total_output_tokens, 250);
+    assert!((s.total_cost_usd - 0.031125).abs() < 1e-9);
+}
+
+#[test]
+fn citation_cache_upsert_and_get() {
+    let db = Db::open_in_memory().unwrap();
+    assert!(db.get_citation_cache("K1").unwrap().is_none());
+
+    db.upsert_citation_cache("K1", "{\"references\":[]}", "2026-06-24T00:00:00Z")
+        .unwrap();
+    let (json, at) = db.get_citation_cache("K1").unwrap().unwrap();
+    assert_eq!(json, "{\"references\":[]}");
+    assert_eq!(at, "2026-06-24T00:00:00Z");
+
+    // Upsert overwrites in place.
+    db.upsert_citation_cache("K1", "{\"references\":[1]}", "2026-06-25T00:00:00Z")
+        .unwrap();
+    let (json, at) = db.get_citation_cache("K1").unwrap().unwrap();
+    assert_eq!(json, "{\"references\":[1]}");
+    assert_eq!(at, "2026-06-25T00:00:00Z");
+}
+
+#[test]
 fn db_all_summaries_lists_every_row() {
     let db = Db::open_in_memory().unwrap();
     for (key, src) in [("A", SummarySource::Abstract), ("B", SummarySource::Fulltext)] {

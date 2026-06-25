@@ -8,7 +8,7 @@ use serde_json::{json, Value};
 use crate::error::{Error, Result};
 use crate::llm::provider::{
     audit_prompt, classify_prompt, summarize_prompt, AuditRequest, AuditResponse,
-    ClassifyRequest, ClassifyResponse, SummarizeRequest,
+    ClassifyRequest, ClassifyResponse, SummarizeRequest, Usage,
 };
 use crate::llm::sse;
 use crate::models::{ChatMessage, ChatRole};
@@ -21,6 +21,7 @@ pub struct GeminiClient {
     model: String,
     base_url: String,
     http: reqwest::Client,
+    last_usage: std::sync::Mutex<Option<Usage>>,
 }
 
 impl GeminiClient {
@@ -35,7 +36,27 @@ impl GeminiClient {
             model,
             base_url: base_url.trim_end_matches('/').to_string(),
             http,
+            last_usage: std::sync::Mutex::new(None),
         }
+    }
+
+    fn record_usage(&self, value: &Value) {
+        let input = value
+            .pointer("/usageMetadata/promptTokenCount")
+            .and_then(|v| v.as_u64())
+            .unwrap_or(0) as u32;
+        let output = value
+            .pointer("/usageMetadata/candidatesTokenCount")
+            .and_then(|v| v.as_u64())
+            .unwrap_or(0) as u32;
+        *self.last_usage.lock().expect("usage mutex") = Some(Usage {
+            input_tokens: input,
+            output_tokens: output,
+        });
+    }
+
+    pub fn last_usage(&self) -> Option<Usage> {
+        *self.last_usage.lock().expect("usage mutex")
     }
 
     async fn generate(&self, model: &str, body: Value) -> Result<Value> {
@@ -68,8 +89,10 @@ impl GeminiClient {
             });
         }
 
-        serde_json::from_str(&text)
-            .map_err(|e| Error::llm(PROVIDER, format!("invalid JSON response: {e}")))
+        let value: Value = serde_json::from_str(&text)
+            .map_err(|e| Error::llm(PROVIDER, format!("invalid JSON response: {e}")))?;
+        self.record_usage(&value);
+        Ok(value)
     }
 
     fn extract_text(value: &Value) -> Result<String> {

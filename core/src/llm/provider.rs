@@ -25,6 +25,21 @@ use crate::models::ProviderId;
 pub const GEMINI_BASE_URL: &str = "https://generativelanguage.googleapis.com";
 pub const ANTHROPIC_BASE_URL: &str = "https://api.anthropic.com";
 
+/// Token usage from a single non-streaming LLM response. Captured as a
+/// side-channel (each client stores its most recent response's usage in an
+/// interior-mutable cell) so provider method signatures stay unchanged.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct Usage {
+    pub input_tokens: u32,
+    pub output_tokens: u32,
+}
+
+impl Usage {
+    pub fn is_empty(&self) -> bool {
+        self.input_tokens == 0 && self.output_tokens == 0
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct SummarizeRequest {
     pub title: String,
@@ -454,6 +469,16 @@ impl AnyProvider {
             AnyProvider::Gemini(c) => c.audit(req).await,
             AnyProvider::Anthropic(c) => c.audit(req).await,
             AnyProvider::Local(c) => c.audit(req).await,
+        }
+    }
+
+    /// Token usage of this provider's most recent non-streaming call, if the
+    /// response reported it. Read right after `summarize`/`classify`/`audit`.
+    pub fn last_usage(&self) -> Option<Usage> {
+        match self {
+            AnyProvider::Gemini(c) => c.last_usage(),
+            AnyProvider::Anthropic(c) => c.last_usage(),
+            AnyProvider::Local(c) => c.last_usage(),
         }
     }
 

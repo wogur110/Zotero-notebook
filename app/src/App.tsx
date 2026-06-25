@@ -130,9 +130,12 @@ export default function App() {
     void refreshStatus();
     void refreshLibrary();
     void api.getSettings().then(setSettings).catch(() => {});
+    void api.getUsageSummary().then(setUsage).catch(() => {});
     const un = api.onZoteroStatus((s) => setStatus(s));
+    const unUsage = api.onUsageUpdate(setUsage);
     return () => {
       void un.then((f) => f());
+      void unUsage.then((f) => f());
     };
   }, [refreshStatus, refreshLibrary]);
 
@@ -226,6 +229,7 @@ export default function App() {
       <div className="flex min-w-0 flex-1 flex-col">
         <Topbar
           status={status}
+          usage={usage}
           refreshing={refreshing}
           view={view}
           onRefresh={() => {

@@ -8,13 +8,18 @@ import type {
   AuditProposal,
   ChatDelta,
   ChatMessage,
+  CitationGraph,
   ClassificationDecision,
   ClassificationProposal,
   Library,
   MoveResult,
   ProgressEvent,
   ProviderId,
+  ReadingState,
+  ReadingStatus,
   StoredSummary,
+  SynthesisDelta,
+  UsageSummary,
   ZoteroStatus,
 } from "./types";
 
@@ -131,6 +136,9 @@ export const openItemPdf = (itemKey: string) =>
 export const openInZotero = (itemKey: string) =>
   invoke<void>("open_in_zotero", { itemKey });
 
+/** Cumulative AI token/cost totals; also pushed live via `onUsageUpdate`. */
+export const getUsageSummary = () => invoke<UsageSummary>("get_usage_summary");
+
 export const getSettings = () => invoke<AppSettings>("get_settings");
 export const saveSettings = (settings: AppSettings) =>
   invoke<void>("save_settings", { settings });
@@ -180,6 +188,11 @@ export const onApplyProgress = (
   cb: (p: ProgressEvent) => void,
 ): Promise<UnlistenFn> =>
   listen<ProgressEvent>("apply-progress", (e) => cb(e.payload));
+
+export const onUsageUpdate = (
+  cb: (u: UsageSummary) => void,
+): Promise<UnlistenFn> =>
+  listen<UsageSummary>("usage-update", (e) => cb(e.payload));
 
 /** Normalize an unknown thrown value (Tauri serializes errors to strings). */
 export const errorMessage = (e: unknown): string =>

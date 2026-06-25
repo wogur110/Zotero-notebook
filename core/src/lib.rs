@@ -31,9 +31,12 @@ pub mod llm {
 }
 
 pub mod abstract_lookup;
+pub mod citations;
 pub mod classify;
 pub mod db;
 pub mod keychain;
+pub mod pricing;
 pub mod settings;
+pub mod synthesis;
 
 pub use error::{Error, Result};

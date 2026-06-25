@@ -574,3 +574,46 @@ async fn local_unknown_model_hints_ollama_pull() {
     let err = client.test_key().await.unwrap_err();
     assert!(err.to_string().contains("ollama pull"), "got: {err}");
 }
+
+// --- usage capture (token/cost tracking) ------------------------------
+
+#[tokio::test]
+async fn gemini_summarize_captures_usage() {
+    let server = MockServer::start().await;
+    Mock::given(method("POST"))
+        .and(path("/v1beta/models/gemini-2.5-pro:generateContent"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "candidates": [{ "content": { "parts": [{ "text": "A summary." }] } }],
+            "usageMetadata": { "promptTokenCount": 1200, "candidatesTokenCount": 80 }
+        })))
+        .mount(&server)
+        .await;
+
+    let client = GeminiClient::new("k".into(), "gemini-2.5-pro".into(), server.uri());
+    assert!(client.last_usage().is_none(), "no usage before any call");
+    let out = client.summarize(&summarize_req()).await.unwrap();
+    assert_eq!(out, "A summary.");
+    let usage = client.last_usage().expect("usage captured after summarize");
+    assert_eq!(usage.input_tokens, 1200);
+    assert_eq!(usage.output_tokens, 80);
+}
+
+#[tokio::test]
+async fn anthropic_summarize_captures_usage() {
+    let server = MockServer::start().await;
+    Mock::given(method("POST"))
+        .and(path("/v1/messages"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "stop_reason": "end_turn",
+            "content": [{ "type": "text", "text": "A summary." }],
+            "usage": { "input_tokens": 2000, "output_tokens": 150 }
+        })))
+        .mount(&server)
+        .await;
+
+    let client = AnthropicClient::new("k".into(), "claude-opus-4-8".into(), server.uri());
+    let _ = client.summarize(&summarize_req()).await.unwrap();
+    let usage = client.last_usage().expect("usage captured");
+    assert_eq!(usage.input_tokens, 2000);
+    assert_eq!(usage.output_tokens, 150);
+}
