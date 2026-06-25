@@ -66,8 +66,8 @@ string). The frontend mirror lives in `app/src/api.ts`.
 | `summarize_items` | `itemKeys: string[]`, `provider?` | `StoredSummary[]` | Batch quick-summarize (metadata+abstract only); sequential, emits `summarize-progress`, per-item failures don't abort. |
 | `save_summary_note` | `itemKey` | — | Manual "Save to Zotero": pushes the stored summary as a child note via plugin `/update-item` (upserted in place by marker). |
 | `summarize_item` | `itemKey`, `provider?`, `useFulltext?` | `StoredSummary` | Default: metadata+abstract prompt (cheap). `useFulltext: true` (a separate UI button) additionally sends up to 80k chars of the PDF's extracted text via the plugin. The result records its `source` (fulltext/abstract/metadata) for the UI badge. |
-| `chat_with_item` | `itemKey`, `history: ChatMessage[]`, `provider?` | `string` | Per-paper "Ask AI" chat. Context = metadata + extracted PDF text (80k cap, plugin `/fulltext`). Streams fragments as `chat-delta` events (`ChatDelta`), resolves with the full answer. Answers always in English. |
-| `chat_with_items` | `itemKeys: string[]`, `history: ChatMessage[]`, `provider?` | `string` | Multi-paper synthesis / Q&A over a set of items (a whole collection or an ad-hoc selection). Context = metadata + abstracts only (no PDF text), capped at `MAX_SYNTHESIS_PAPERS` (50), each abstract truncated; built by `synthesis::build_context`. Streams fragments as `synthesis-delta` events (`SynthesisDelta`, no item key), resolves with the full answer. Answers always in English. |
+| `chat_with_item` | `itemKey`, `history: ChatMessage[]`, `provider?` | `string` | Per-paper "Ask AI" chat. Context = metadata + extracted PDF text (80k cap, plugin `/fulltext`). Streams fragments as `chat-delta` events (`ChatDelta`), resolves with the full answer. Answers in `AppSettings.output_language`. |
+| `chat_with_items` | `itemKeys: string[]`, `history: ChatMessage[]`, `provider?` | `string` | Multi-paper synthesis / Q&A over a set of items (a whole collection or an ad-hoc selection). Context = metadata + abstracts only (no PDF text), capped at `MAX_SYNTHESIS_PAPERS` (50), each abstract truncated; built by `synthesis::build_context`. Streams fragments as `synthesis-delta` events (`SynthesisDelta`, no item key), resolves with the full answer. Answers in `AppSettings.output_language`. |
 | `classify_items` | `itemKeys: string[]`, `provider?` | `ClassificationProposal[]` | Sequential; emits `classify-progress` (`ProgressEvent`) per item. |
 | `audit_items` | `itemKeys: string[]`, `provider?` | `AuditProposal[]` | Re-checks already-classified papers ("is the current filing right?"); conservative prompt — flags only when no current collection fits. Emits `audit-progress`. |
 | `apply_classifications` | `decisions: ClassificationDecision[]` | `MoveResult[]` | Plugin move-item per decision; emits `apply-progress`. Continues past per-item failures. Removes the Unclassified membership plus any `removeCollectionKeys` on the decision (audit flow). |
@@ -79,6 +79,8 @@ string). The frontend mirror lives in `app/src/api.ts`.
 | `has_api_key` / `delete_api_key` | `provider` | `bool` / — | |
 | `test_api_key` | `provider` | — | Cheap live request; error message explains failure. |
 | `export_plugin_xpi` | `destDir` | `string` | Writes the bundled `.xpi` (Tauri resource) into `destDir`, returns the full path. Used by Settings → "Install Zotero plugin". |
+| `write_text_file` | `path`, `content` | — | Writes UTF-8 text to a path the user chose via the save dialog. Backs the Markdown "Export" actions (review document / annotated bibliography, built client-side in `app/src/lib/export.ts`). |
+| `add_tags` | `itemKeys: string[]`, `tags: string[]` | `MoveResult[]` | Bulk write-back: add tags to many items (additive; existing tags kept). Backs the bulk "Add tag" action. Needs the plugin (`/update-item`). |
 
 Events: `zotero-status` (`ZoteroStatus`), `classify-progress`,
 `audit-progress`, `apply-progress`, `summarize-progress` (all
@@ -105,8 +107,14 @@ in the prompt, a one-shot retry without `response_format` for servers that
 reject the parameter, and a tolerant JSON extractor for fenced/prosy
 replies. Configured via `AppSettings.local_base_url` / `local_model`.
 
+  All prose prompts take the output language from `AppSettings.output_language`
+  (default English); the classify/audit prompts localize only the `rationale`
+  value, keeping the path and tags structured. Threaded via a `language` field
+  on the request structs (the Tauri commands set it from settings).
+
 - **Summarize**: metadata-only prompt (title, authors, venue, year,
-  abstract). 5–8 sentence English summary. PDFs are never uploaded.
+  abstract). 5–8 sentence summary in the configured language. PDFs never
+  uploaded.
   Missing abstracts are backfilled best-effort from Crossref → Semantic
   Scholar → OpenAlex (`core/src/abstract_lookup.rs`, key-less public APIs)
   before any summarize/classify/audit call; summaries generated with no

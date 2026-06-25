@@ -37,6 +37,9 @@ reading state, cached citation graphs, and a usage ledger).
   abstract, collections, and the resolved file path on disk.
 - **Fast search** — `Ctrl/Cmd+K` fuzzy search across titles, authors, tags,
   venues, abstracts, **and your stored AI summaries**.
+- **Filters & bulk actions** 🆕 — filter any list by reading status, starred,
+  summary presence, PDF, tag, or year; tick papers to bulk-set their reading
+  status, star/unstar them, or add a Zotero tag to all at once.
 
 ### AI that reads your papers
 
@@ -49,7 +52,11 @@ reading state, cached citation graphs, and a usage ledger).
   talks to any OpenAI-compatible server (Ollama, LM Studio, llama.cpp) — see
   [Using a local LLM](#using-a-local-llm-no-cloud-no-api-key).
 - **Ask AI about a paper** — a chat tab in the paper popup, grounded in the
-  PDF's extracted full text, with streaming answers (always in English).
+  PDF's extracted full text, streamed live.
+- **Output language** 🆕 — pick the language for AI prose (summaries, chat,
+  synthesis, and the classification rationale) in Settings — English, 한국어,
+  日本語, and more. The interface stays English; collection paths, tags, and
+  author/technical terms are kept in their original form.
 - **Synthesize across papers** 🆕 — a **Synthesize** button on any collection
   (or an ad-hoc selection) runs multi-paper Q&A: a collection overview, a
   method comparison, or a free-form question (*"which of these use
@@ -59,6 +66,11 @@ reading state, cached citation graphs, and a usage ledger).
 - **Batch summarize** — a **Summarize N** button quick-summarizes every paper
   in the current view that has no summary yet (confirm first, per-paper
   progress and failure reporting).
+- **Export review documents** 🆕 — an **Export** button turns any collection
+  (or selection) into a Markdown document: an annotated bibliography (each
+  paper's citation + its AI summary + tags), optionally led by a synthesis
+  narrative from the Synthesize panel. Save to a file or copy to the clipboard
+  — a ready literature-review draft.
 
 ### Stay organized
 
