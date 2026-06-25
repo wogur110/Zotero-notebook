@@ -49,6 +49,7 @@ describe("SynthesisFlow", () => {
       <SynthesisFlow
         items={[library.items[0], library.items[1]]}
         scopeLabel="All Papers"
+        summaries={new Map()}
         defaultProvider="gemini"
         onClose={() => {}}
       />,
@@ -77,6 +78,7 @@ describe("SynthesisFlow", () => {
       <SynthesisFlow
         items={many}
         scopeLabel="All Papers"
+        summaries={new Map()}
         defaultProvider="gemini"
         onClose={() => {}}
       />,
@@ -91,6 +93,7 @@ describe("LibraryView · synthesis entry", () => {
     error: null as string | null,
     defaultProvider: "gemini" as const,
     summarizedKeys: new Set<string>(),
+    summaries: new Map(),
     readingStates: new Map(),
     onOpenItem: () => {},
     onRetry: () => {},

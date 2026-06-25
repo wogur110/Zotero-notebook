@@ -155,6 +155,14 @@ export const testApiKey = (provider: ProviderId) =>
 export const exportPluginXpi = (destDir: string) =>
   invoke<string>("export_plugin_xpi", { destDir });
 
+/** Write UTF-8 text to a path (chosen via the save dialog) — Markdown export. */
+export const writeTextFile = (path: string, content: string) =>
+  invoke<void>("write_text_file", { path, content });
+
+/** Bulk-add tags to items (additive, write-back via the plugin). */
+export const addTags = (itemKeys: string[], tags: string[]) =>
+  invoke<MoveResult[]>("add_tags", { itemKeys, tags });
+
 // Events --------------------------------------------------------------
 
 export const onZoteroStatus = (cb: (s: ZoteroStatus) => void): Promise<UnlistenFn> =>

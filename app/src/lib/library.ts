@@ -183,6 +183,57 @@ export function starredItems(
   return library.items.filter((i) => states.get(i.key)?.starred === true);
 }
 
+/** Client-side list filters (status / star / summary / PDF / tag / year). */
+export interface ItemFilter {
+  /** A specific status, "none" for untracked, or null for any. */
+  status: ReadingStatus | "none" | null;
+  starred: boolean;
+  summary: "any" | "has" | "missing";
+  pdf: boolean;
+  tag: string | null;
+  year: number | null;
+}
+
+export const EMPTY_FILTER: ItemFilter = {
+  status: null,
+  starred: false,
+  summary: "any",
+  pdf: false,
+  tag: null,
+  year: null,
+};
+
+export function filterIsActive(f: ItemFilter): boolean {
+  return (
+    f.status !== null ||
+    f.starred ||
+    f.summary !== "any" ||
+    f.pdf ||
+    f.tag !== null ||
+    f.year !== null
+  );
+}
+
+export function filterItems(
+  items: Item[],
+  f: ItemFilter,
+  ctx: { readingStates: Map<string, ReadingState>; summarizedKeys: Set<string> },
+): Item[] {
+  return items.filter((i) => {
+    const st = ctx.readingStates.get(i.key);
+    if (f.status === "none" && st?.status) return false;
+    if (f.status !== null && f.status !== "none" && st?.status !== f.status)
+      return false;
+    if (f.starred && !st?.starred) return false;
+    if (f.summary === "has" && !ctx.summarizedKeys.has(i.key)) return false;
+    if (f.summary === "missing" && ctx.summarizedKeys.has(i.key)) return false;
+    if (f.pdf && !i.attachment) return false;
+    if (f.tag && !i.tags.includes(f.tag)) return false;
+    if (f.year !== null && i.year !== f.year) return false;
+    return true;
+  });
+}
+
 export function formatAuthors(creators: string[], max = 3): string {
   if (creators.length === 0) return "—";
   if (creators.length <= max) return creators.join(", ");

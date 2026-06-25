@@ -36,6 +36,20 @@ export const IconBookmark = (p: IconProps) => (
   </svg>
 );
 
+export const IconDownload = (p: IconProps) => (
+  <svg {...base(p)}>
+    <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+    <path d="M7 10l5 5 5-5" />
+    <path d="M12 15V3" />
+  </svg>
+);
+
+export const IconFilter = (p: IconProps) => (
+  <svg {...base(p)}>
+    <path d="M22 3H2l8 9.46V19l4 2v-8.54z" />
+  </svg>
+);
+
 export const IconDollar = (p: IconProps) => (
   <svg {...base(p)}>
     <line x1="12" y1="2" x2="12" y2="22" />

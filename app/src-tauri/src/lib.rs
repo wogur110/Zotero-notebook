@@ -970,6 +970,47 @@ fn export_plugin_xpi(app: AppHandle, dest_dir: String) -> Result<String> {
     Ok(dest.to_string_lossy().into_owned())
 }
 
+/// Write UTF-8 text to a path the user chose via the save dialog. Backs the
+/// "Export to Markdown" actions (review document / annotated bibliography).
+#[tauri::command]
+fn write_text_file(path: String, content: String) -> Result<()> {
+    std::fs::write(&path, content).map_err(|e| Error::Other(format!("failed to write {path}: {e}")))
+}
+
+/// Add tags to multiple items (additive; existing tags are kept, never
+/// removed). Backs the bulk "Add tag" action. Returns per-item results so the
+/// UI can report partial failures; needs the companion plugin.
+#[tauri::command]
+async fn add_tags(
+    state: State<'_, AppState>,
+    item_keys: Vec<String>,
+    tags: Vec<String>,
+) -> Result<Vec<MoveResult>> {
+    let s = state.settings();
+    let client = plugin_api::PluginClient::new(&s.zotero_base_url);
+    let mut results = Vec::with_capacity(item_keys.len());
+    for key in &item_keys {
+        let result = match client.update_item(key, None, &tags, None).await {
+            Ok(_) => MoveResult {
+                item_key: key.clone(),
+                ok: true,
+                error: None,
+                collection_key: None,
+                new_file_path: None,
+            },
+            Err(e) => MoveResult {
+                item_key: key.clone(),
+                ok: false,
+                error: Some(e.to_string()),
+                collection_key: None,
+                new_file_path: None,
+            },
+        };
+        results.push(result);
+    }
+    Ok(results)
+}
+
 // --- app entry --------------------------------------------------------
 
 fn spawn_status_watcher(app: AppHandle, config_dir: PathBuf) {
@@ -1040,7 +1081,9 @@ pub fn run() {
             has_api_key,
             delete_api_key,
             test_api_key,
-            export_plugin_xpi
+            export_plugin_xpi,
+            write_text_file,
+            add_tags
         ])
         .run(tauri::generate_context!())
         .expect("error while running Zotero Notebook");

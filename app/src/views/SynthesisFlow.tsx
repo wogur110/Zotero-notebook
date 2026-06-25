@@ -4,11 +4,14 @@
 
 import { useEffect, useRef, useState } from "react";
 import * as api from "../api";
-import type { ChatMessage, Item, ProviderId } from "../types";
+import type { ChatMessage, Item, ProviderId, StoredSummary } from "../types";
+import { buildReviewMarkdown, exportFileName } from "../lib/export";
+import { copyText, saveMarkdown } from "../lib/exportActions";
 import {
   IconAlert,
   IconArrowRight,
   IconChevronRight,
+  IconDownload,
   IconLibrary,
   IconLoader,
   IconSparkles,
@@ -18,6 +21,8 @@ interface Props {
   /** The papers in scope (current view, or the selected subset). */
   items: Item[];
   scopeLabel: string;
+  /** Stored AI summaries by item key (for the Markdown export). */
+  summaries: Map<string, StoredSummary>;
   defaultProvider: ProviderId;
   onClose: () => void;
 }
@@ -46,6 +51,7 @@ const PRESETS: { label: string; prompt: string }[] = [
 export default function SynthesisFlow({
   items,
   scopeLabel,
+  summaries,
   defaultProvider,
   onClose,
 }: Props) {
@@ -54,6 +60,29 @@ export default function SynthesisFlow({
   const [busy, setBusy] = useState(false);
   const [streamText, setStreamText] = useState("");
   const [error, setError] = useState<string | null>(null);
+  const [exportMsg, setExportMsg] = useState<string | null>(null);
+
+  const doExport = async (mode: "save" | "copy") => {
+    const md = buildReviewMarkdown({
+      title: scopeLabel,
+      generatedAt: new Date().toLocaleString(),
+      items,
+      summaries,
+      narrative: messages,
+    });
+    try {
+      if (mode === "copy") {
+        await copyText(md);
+        setExportMsg("Copied to clipboard");
+      } else {
+        const path = await saveMarkdown(exportFileName(scopeLabel), md);
+        if (path) setExportMsg(`Saved to ${path}`);
+      }
+    } catch (e) {
+      setExportMsg(`Export failed: ${api.errorMessage(e)}`);
+    }
+    window.setTimeout(() => setExportMsg(null), 5000);
+  };
   const bottomRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
 
@@ -132,7 +161,28 @@ export default function SynthesisFlow({
             )}
           </p>
         </div>
+        <button
+          className="btn-secondary py-1! text-xs"
+          disabled={items.length === 0}
+          title="Save this synthesis + an annotated bibliography as a Markdown document"
+          onClick={() => void doExport("save")}
+        >
+          <IconDownload size={13} /> Export
+        </button>
+        <button
+          className="btn-ghost py-1! text-xs"
+          disabled={items.length === 0}
+          title="Copy as Markdown"
+          onClick={() => void doExport("copy")}
+        >
+          Copy
+        </button>
       </div>
+      {exportMsg && (
+        <div className="border-b border-edge px-6 py-1 text-xs text-muted">
+          {exportMsg}
+        </div>
+      )}
 
       <div className="min-h-0 flex-1 space-y-3 overflow-y-auto px-6 py-4">
         {messages.length === 0 && !busy ? (

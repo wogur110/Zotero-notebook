@@ -9,6 +9,7 @@ import type {
   Item,
   Library,
   ReadingState,
+  ReadingStatus,
   StoredSummary,
   UsageSummary,
   ZoteroStatus,
@@ -106,6 +107,40 @@ export default function App() {
     [readingStates, applyReadingState],
   );
 
+  // Bulk actions over a multi-selection (local sidecar; tags write to Zotero).
+  const bulkSetStatus = useCallback(
+    async (keys: string[], status: ReadingStatus | null) => {
+      for (const k of keys) {
+        const cur = readingStates.get(k);
+        try {
+          applyReadingState(
+            k,
+            await api.setReadingState(k, status, cur?.starred ?? false, cur?.note ?? ""),
+          );
+        } catch {
+          /* skip the failed item */
+        }
+      }
+    },
+    [readingStates, applyReadingState],
+  );
+  const bulkSetStarred = useCallback(
+    async (keys: string[], starred: boolean) => {
+      for (const k of keys) {
+        const cur = readingStates.get(k);
+        try {
+          applyReadingState(
+            k,
+            await api.setReadingState(k, cur?.status ?? null, starred, cur?.note ?? ""),
+          );
+        } catch {
+          /* skip */
+        }
+      }
+    },
+    [readingStates, applyReadingState],
+  );
+
   const refreshLibrary = useCallback(async () => {
     setRefreshing(true);
     refreshSummaries();
@@ -138,6 +173,18 @@ export default function App() {
       setRefreshing(false);
     }
   }, [refreshSummaries, refreshReadingStates]);
+
+  const bulkAddTags = useCallback(
+    async (keys: string[], tags: string[]) => {
+      try {
+        await api.addTags(keys, tags);
+      } catch {
+        /* best-effort; the refresh below reflects whatever succeeded */
+      }
+      await refreshLibrary(); // reflect the new Zotero tags
+    },
+    [refreshLibrary],
+  );
 
   const refreshStatus = useCallback(async () => {
     try {
@@ -213,6 +260,10 @@ export default function App() {
   );
   const summarizedKeys = useMemo(
     () => new Set(summaries.map((s) => s.itemKey)),
+    [summaries],
+  );
+  const summariesMap = useMemo(
+    () => new Map(summaries.map((s) => [s.itemKey, s])),
     [summaries],
   );
   const openItem: Item | null = useMemo(
@@ -306,8 +357,12 @@ export default function App() {
               error={libraryError}
               defaultProvider={settings?.defaultProvider ?? "gemini"}
               summarizedKeys={summarizedKeys}
+              summaries={summariesMap}
               readingStates={readingStates}
               onToggleStar={toggleStar}
+              onBulkStatus={bulkSetStatus}
+              onBulkStarred={bulkSetStarred}
+              onBulkAddTags={bulkAddTags}
               onOpenItem={setOpenItemKey}
               onRetry={refreshLibrary}
               onApplied={refreshLibrary}

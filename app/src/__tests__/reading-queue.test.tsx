@@ -62,6 +62,7 @@ const baseProps = {
   error: null as string | null,
   defaultProvider: "gemini" as const,
   summarizedKeys: new Set<string>(),
+  summaries: new Map(),
   onRetry: () => {},
   onApplied: () => {},
   onSummarized: () => {},
@@ -96,10 +97,11 @@ describe("Reading queue view", () => {
         onOpenItem={() => {}}
       />,
     );
-    // The status column renders each tracked item's label.
-    expect(screen.getByText("To read")).toBeInTheDocument();
-    expect(screen.getByText("Reading")).toBeInTheDocument();
-    expect(screen.getByText("Read")).toBeInTheDocument();
+    // The status column renders each tracked item's label as a badge span
+    // (the filter bar's <option>s carry the same text, hence the selector).
+    expect(screen.getByText("To read", { selector: "span" })).toBeInTheDocument();
+    expect(screen.getByText("Reading", { selector: "span" })).toBeInTheDocument();
+    expect(screen.getByText("Read", { selector: "span" })).toBeInTheDocument();
   });
 });
 

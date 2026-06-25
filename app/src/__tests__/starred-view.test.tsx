@@ -48,6 +48,7 @@ const base = {
   error: null as string | null,
   defaultProvider: "gemini" as const,
   summarizedKeys: new Set<string>(),
+  summaries: new Map(),
   readingStates: states,
   onRetry: () => {},
   onApplied: () => {},
