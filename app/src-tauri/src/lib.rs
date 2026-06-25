@@ -401,6 +401,54 @@ async fn chat_with_item(
     llm.chat_stream(&system, &history, &mut on_delta).await
 }
 
+/// One turn of multi-paper synthesis / Q&A over a set of items — a whole
+/// collection or an ad-hoc selection. Context is metadata + abstracts only
+/// (no PDF text), capped at `MAX_SYNTHESIS_PAPERS`. Streams fragments as
+/// `synthesis-delta` events and resolves with the complete answer.
+#[tauri::command]
+async fn chat_with_items(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    item_keys: Vec<String>,
+    history: Vec<ChatMessage>,
+    provider: Option<ProviderId>,
+) -> Result<String> {
+    if history.is_empty() {
+        return Err(Error::Other("the conversation is empty".into()));
+    }
+    if item_keys.is_empty() {
+        return Err(Error::Other("no papers selected".into()));
+    }
+    let s = state.settings();
+    let library = fetch_library_any(&s).await?;
+    // Resolve keys to items, preserving the requested order; silently skip any
+    // that vanished from the library since the UI loaded it.
+    let items: Vec<Item> = item_keys
+        .iter()
+        .filter_map(|k| library.items.iter().find(|i| &i.key == k).cloned())
+        .collect();
+    if items.is_empty() {
+        return Err(Error::Other(
+            "none of the selected papers are in the library".into(),
+        ));
+    }
+    let ctx = zn_core::synthesis::build_context(&items);
+    let llm = build_provider(provider, &s).await?;
+    let system = zn_core::llm::provider::synthesis_system_prompt(&ctx.papers);
+
+    let mut on_delta = |t: &str| {
+        if let Err(e) = app.emit(
+            "synthesis-delta",
+            &SynthesisDelta {
+                delta: t.to_string(),
+            },
+        ) {
+            log::warn!("failed to emit synthesis-delta: {e}");
+        }
+    };
+    llm.chat_stream(&system, &history, &mut on_delta).await
+}
+
 #[tauri::command]
 async fn classify_items(
     app: AppHandle,

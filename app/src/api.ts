@@ -120,6 +120,11 @@ export const onChatDelta = (
   cb: (d: ChatDelta) => void,
 ): Promise<UnlistenFn> => listen<ChatDelta>("chat-delta", (e) => cb(e.payload));
 
+export const onSynthesisDelta = (
+  cb: (d: SynthesisDelta) => void,
+): Promise<UnlistenFn> =>
+  listen<SynthesisDelta>("synthesis-delta", (e) => cb(e.payload));
+
 export const onAuditProgress = (
   cb: (p: ProgressEvent) => void,
 ): Promise<UnlistenFn> =>

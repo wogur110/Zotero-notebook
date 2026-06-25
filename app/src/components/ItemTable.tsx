@@ -10,6 +10,16 @@ interface Props {
   onOpenItem: (key: string) => void;
   emptyTitle?: string;
   emptyHint?: string;
+  /**
+   * When provided (together with the handlers), a selection checkbox column is
+   * shown so the parent can act on an ad-hoc subset (e.g. multi-paper
+   * synthesis). Omit for a plain open-only list.
+   */
+  selectedKeys?: Set<string>;
+  onToggleSelect?: (key: string) => void;
+  onSelectAll?: (keys: string[], select: boolean) => void;
+  /** When provided, a reading-status/star column is shown. */
+  readingStates?: Map<string, ReadingState>;
 }
 
 export function relativeDate(iso: string | null): string {
@@ -29,9 +39,15 @@ export default function ItemTable({
   onOpenItem,
   emptyTitle = "No papers here",
   emptyHint,
+  selectedKeys,
+  onToggleSelect,
+  onSelectAll,
+  readingStates,
 }: Props) {
   const [sortKey, setSortKey] = useState<SortKey>("added");
   const [asc, setAsc] = useState(false);
+  const selectable = !!selectedKeys && !!onToggleSelect && !!onSelectAll;
+  const showStatus = !!readingStates;
 
   const sorted = useMemo(() => {
     const copy = [...items];
@@ -72,12 +88,35 @@ export default function ItemTable({
   const arrow = (key: SortKey) =>
     sortKey === key ? (asc ? " ↑" : " ↓") : "";
 
+  const allSelected =
+    selectable && sorted.every((i) => selectedKeys!.has(i.key));
+  const someSelected =
+    selectable && !allSelected && sorted.some((i) => selectedKeys!.has(i.key));
+
   return (
     <div className="h-full overflow-y-auto">
-      <div className="sticky top-0 z-10 flex items-center gap-3 border-b border-edge bg-bg px-6 py-2 text-[11px] font-semibold uppercase tracking-wider text-faint">
-        <button className="flex-1 text-left hover:text-muted" onClick={() => onSort("title")}>
+      <div className="sticky top-0 z-10 flex items-center gap-3 border-b border-edge bg-bg pr-6 py-2 text-[11px] font-semibold uppercase tracking-wider text-faint">
+        {selectable && (
+          <span className="flex shrink-0 items-center pl-6">
+            <SelectAllCheckbox
+              checked={allSelected}
+              indeterminate={someSelected}
+              onChange={() =>
+                onSelectAll!(
+                  sorted.map((i) => i.key),
+                  !allSelected,
+                )
+              }
+            />
+          </span>
+        )}
+        <button
+          className={`flex-1 text-left hover:text-muted ${selectable ? "" : "pl-6"}`}
+          onClick={() => onSort("title")}
+        >
           Title{arrow("title")}
         </button>
+        {showStatus && <span className="w-[92px] shrink-0">Status</span>}
         <button className="w-12 text-left hover:text-muted" onClick={() => onSort("year")}>
           Year{arrow("year")}
         </button>
@@ -88,25 +127,110 @@ export default function ItemTable({
       </div>
       <ul>
         {sorted.map((item) => (
-          <Row key={item.key} item={item} onOpen={onOpenItem} />
+          <Row
+            key={item.key}
+            item={item}
+            onOpen={onOpenItem}
+            selectable={selectable}
+            selected={selectable ? selectedKeys!.has(item.key) : false}
+            onToggleSelect={onToggleSelect}
+            showStatus={showStatus}
+            state={readingStates?.get(item.key)}
+          />
         ))}
       </ul>
     </div>
   );
 }
 
+/** A checkbox that supports the indeterminate ("some selected") visual. */
+function SelectAllCheckbox({
+  checked,
+  indeterminate,
+  onChange,
+}: {
+  checked: boolean;
+  indeterminate: boolean;
+  onChange: () => void;
+}) {
+  const ref = useRef<HTMLInputElement>(null);
+  if (ref.current) ref.current.indeterminate = indeterminate;
+  return (
+    <input
+      ref={ref}
+      type="checkbox"
+      aria-label="Select all papers in this view"
+      className="h-4 w-4 cursor-pointer"
+      style={{ accentColor: "var(--accent)" }}
+      checked={checked}
+      onChange={onChange}
+    />
+  );
+}
+
+const STATUS_STYLE: Record<ReadingState["status"], string> = {
+  to_read: "bg-inset text-muted",
+  reading: "bg-accent-soft text-accent",
+  read: "bg-ok-soft text-ok",
+};
+
+/** Compact reading-status badge + priority star for a table row. */
+function StatusCell({ state }: { state?: ReadingState }) {
+  if (!state) return <span className="w-[92px] shrink-0" aria-hidden />;
+  return (
+    <span className="flex w-[92px] shrink-0 items-center gap-1">
+      {state.starred && (
+        <span className="text-accent" title="Priority">
+          <IconStar size={12} fill="currentColor" strokeWidth={0} />
+        </span>
+      )}
+      <span className={`badge ${STATUS_STYLE[state.status]}`}>
+        {READING_STATUS_LABEL[state.status]}
+      </span>
+    </span>
+  );
+}
+
 const Row = memo(function Row({
   item,
   onOpen,
+  selectable,
+  selected,
+  onToggleSelect,
+  showStatus,
+  state,
 }: {
   item: Item;
   onOpen: (key: string) => void;
+  selectable: boolean;
+  selected: boolean;
+  onToggleSelect?: (key: string) => void;
+  showStatus: boolean;
+  state?: ReadingState;
 }) {
   return (
-    <li className="group border-b border-edge">
+    <li
+      className={`group flex items-center border-b border-edge transition-colors ${
+        selected ? "bg-accent-soft/40" : ""
+      }`}
+    >
+      {selectable && (
+        <label className="flex shrink-0 cursor-pointer items-center py-2.5 pl-6 pr-1">
+          <input
+            type="checkbox"
+            aria-label={`Select ${item.title}`}
+            className="h-4 w-4 cursor-pointer"
+            style={{ accentColor: "var(--accent)" }}
+            checked={selected}
+            onChange={() => onToggleSelect?.(item.key)}
+          />
+        </label>
+      )}
       <button
         onClick={() => onOpen(item.key)}
-        className="flex w-full items-center gap-3 px-6 py-2.5 text-left transition-colors hover:bg-inset"
+        className={`flex min-w-0 flex-1 items-center gap-3 py-2.5 pr-6 text-left transition-colors hover:bg-inset ${
+          selectable ? "pl-2" : "pl-6"
+        }`}
       >
         <div className="min-w-0 flex-1">
           <p className="truncate text-sm font-medium leading-snug">

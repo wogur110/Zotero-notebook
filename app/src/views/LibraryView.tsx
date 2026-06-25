@@ -1,18 +1,21 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import type { Selection } from "../App";
-import type { Library, ProviderId } from "../types";
+import type { Library, ProviderId, ReadingState } from "../types";
 import {
   auditableItems,
   collectionPath,
   itemsForCollection,
+  queueItems,
 } from "../lib/library";
 import ItemTable from "../components/ItemTable";
 import AuditFlow from "./AuditFlow";
 import SummarizeFlow from "./SummarizeFlow";
+import SynthesisFlow from "./SynthesisFlow";
 import {
   IconAlert,
   IconChevronRight,
   IconFileText,
+  IconLibrary,
   IconSparkles,
 } from "../components/icons";
 
@@ -43,19 +46,34 @@ export default function LibraryView({
 }: Props) {
   const [auditing, setAuditing] = useState(false);
   const [summarizing, setSummarizing] = useState(false);
+  const [synthesizing, setSynthesizing] = useState(false);
+  const [selectedKeys, setSelectedKeys] = useState<Set<string>>(new Set());
+
+  // A new sidebar selection is a fresh scope — drop any checked papers.
+  useEffect(() => {
+    setSelectedKeys(new Set());
+    setSynthesizing(false);
+  }, [selection]);
 
   const items = useMemo(
     () =>
       selection.kind === "collection"
         ? itemsForCollection(library, selection.key)
-        : library.items,
-    [library, selection],
+        : selection.kind === "queue"
+          ? queueItems(library, readingStates)
+          : library.items,
+    [library, selection, readingStates],
   );
   const path =
     selection.kind === "collection"
       ? collectionPath(library, selection.key)
       : [];
-  const scopeLabel = path.length === 0 ? "All Papers" : path.join(" / ");
+  const scopeLabel =
+    selection.kind === "queue"
+      ? "Reading queue"
+      : path.length === 0
+        ? "All Papers"
+        : path.join(" / ");
   const auditable = useMemo(
     () => auditableItems(library, items),
     [library, items],
@@ -64,6 +82,29 @@ export default function LibraryView({
     () => items.filter((i) => !summarizedKeys.has(i.key)),
     [items, summarizedKeys],
   );
+  const selectedItems = useMemo(
+    () => items.filter((i) => selectedKeys.has(i.key)),
+    [items, selectedKeys],
+  );
+  // Synthesis scope: the checked subset, or the whole current view.
+  const synthScope = selectedItems.length > 0 ? selectedItems : items;
+
+  const toggleSelect = (key: string) =>
+    setSelectedKeys((prev) => {
+      const next = new Set(prev);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
+      return next;
+    });
+  const selectAll = (keys: string[], select: boolean) =>
+    setSelectedKeys((prev) => {
+      const next = new Set(prev);
+      for (const k of keys) {
+        if (select) next.add(k);
+        else next.delete(k);
+      }
+      return next;
+    });
 
   if (error) {
     return (
@@ -108,12 +149,27 @@ export default function LibraryView({
     );
   }
 
+  if (synthesizing) {
+    return (
+      <SynthesisFlow
+        items={synthScope}
+        scopeLabel={
+          selectedItems.length > 0
+            ? `${selectedItems.length} selected`
+            : scopeLabel
+        }
+        defaultProvider={defaultProvider}
+        onClose={() => setSynthesizing(false)}
+      />
+    );
+  }
+
   return (
     <div className="flex h-full flex-col">
       <div className="flex items-baseline gap-3 px-6 pt-5 pb-3">
         <h1 className="flex items-center gap-1.5 text-lg font-semibold tracking-tight">
           {path.length === 0
-            ? "All Papers"
+            ? scopeLabel
             : path.map((seg, i) => (
                 <span key={i} className="flex items-center gap-1.5">
                   {i > 0 && (
@@ -133,6 +189,31 @@ export default function LibraryView({
           <span className="badge bg-info-soft text-info">
             Read-only — install the Zotero plugin to enable classification
           </span>
+        )}
+        {selectedItems.length > 0 && (
+          <button
+            className="btn-ghost text-xs"
+            onClick={() => setSelectedKeys(new Set())}
+            title="Clear the selected papers"
+          >
+            Clear {selectedItems.length} selected
+          </button>
+        )}
+        {items.length > 0 && (
+          <button
+            className="btn-secondary"
+            title={
+              selectedItems.length > 0
+                ? `Ask AI across the ${selectedItems.length} selected ${selectedItems.length === 1 ? "paper" : "papers"} — overview, method comparison, or a question (metadata + abstracts)`
+                : `Ask AI across all ${items.length} ${items.length === 1 ? "paper" : "papers"} in this view — overview, method comparison, or a question (metadata + abstracts)`
+            }
+            onClick={() => setSynthesizing(true)}
+          >
+            <IconLibrary size={14} />{" "}
+            {selectedItems.length > 0
+              ? `Synthesize ${selectedItems.length}`
+              : "Synthesize"}
+          </button>
         )}
         {items.length > 0 && (
           <button
@@ -167,8 +248,20 @@ export default function LibraryView({
         <ItemTable
           items={items}
           onOpenItem={onOpenItem}
-          emptyTitle="No papers here"
-          emptyHint="Papers added to this collection in Zotero will show up after a refresh."
+          selectedKeys={selectedKeys}
+          onToggleSelect={toggleSelect}
+          onSelectAll={selectAll}
+          readingStates={readingStates}
+          emptyTitle={
+            selection.kind === "queue"
+              ? "Your reading queue is empty"
+              : "No papers here"
+          }
+          emptyHint={
+            selection.kind === "queue"
+              ? "Open a paper and set it to “To read” or “Reading” to add it here."
+              : "Papers added to this collection in Zotero will show up after a refresh."
+          }
         />
       </div>
     </div>

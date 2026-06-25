@@ -101,6 +101,24 @@ pub struct AuditResponse {
     pub rationale: String,
 }
 
+/// One paper's metadata + abstract, folded into a multi-paper synthesis or
+/// Q&A context. Abstracts-only by design (see `crate::synthesis`): no PDF
+/// text is sent, so the context scales to a whole collection cheaply.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct PaperBrief {
+    pub title: String,
+    pub creators: Vec<String>,
+    pub year: Option<i32>,
+    pub publication: Option<String>,
+    pub abstract_text: Option<String>,
+}
+
+/// Caps for a multi-paper context (abstracts-only strategy): at most this
+/// many papers, each abstract truncated to this many characters, keeping the
+/// prompt within a sane token budget regardless of collection size.
+pub const MAX_SYNTHESIS_PAPERS: usize = 50;
+pub const MAX_SYNTHESIS_ABSTRACT_CHARS: usize = 1_500;
+
 /// JSON Schema for `ClassifyResponse`, shared by both clients.
 pub fn classify_schema() -> serde_json::Value {
     serde_json::json!({
@@ -229,6 +247,65 @@ pub fn chat_system_prompt(
          - Be concise: short paragraphs, no headings or bullet lists unless\n\
            the user asks for them.\n\n\
          {meta}\n{body}"
+    )
+}
+
+/// Truncate `s` to at most `max` characters (char-boundary safe), appending
+/// an ellipsis when cut.
+fn truncate_chars(s: &str, max: usize) -> String {
+    let t = s.trim();
+    if t.chars().count() <= max {
+        return t.to_string();
+    }
+    let mut out: String = t.chars().take(max).collect();
+    out.push('…');
+    out
+}
+
+/// Numbered `[Paper N]` blocks, each with metadata + a truncated abstract.
+fn numbered_paper_block(papers: &[PaperBrief]) -> String {
+    let mut s = String::new();
+    for (i, p) in papers.iter().enumerate() {
+        s.push_str(&format!("[Paper {}]\n", i + 1));
+        let abstract_trunc = p
+            .abstract_text
+            .as_deref()
+            .map(|a| truncate_chars(a, MAX_SYNTHESIS_ABSTRACT_CHARS));
+        s.push_str(&meta_block(
+            &p.title,
+            &p.creators,
+            p.year,
+            p.publication.as_deref(),
+            abstract_trunc.as_deref(),
+        ));
+        s.push('\n');
+    }
+    s
+}
+
+/// System prompt for multi-paper synthesis and Q&A (collection overview,
+/// method comparison, "which of these cover X"). Like `chat_system_prompt`
+/// but grounded in a numbered set of papers — metadata + abstracts only, no
+/// PDF text. Answers are ALWAYS in English (user decision).
+pub fn synthesis_system_prompt(papers: &[PaperBrief]) -> String {
+    let n = papers.len();
+    let block = numbered_paper_block(papers);
+    format!(
+        "You are helping a researcher make sense of a set of {n} academic \
+         papers from their personal library. Answer the user's request using \
+         only the metadata and abstracts below.\n\n\
+         Rules:\n\
+         - Always answer in English, regardless of the language of the request.\n\
+         - You are working from abstracts and metadata, not the full papers, so \
+           ground every claim in the provided text and do not fabricate specific \
+           numbers, datasets, or quotes. When the abstracts do not contain enough \
+           to answer, say so plainly.\n\
+         - When you refer to a specific paper, cite it as [Paper N] using the \
+           numbers below (optionally with a short title).\n\
+         - For overviews and comparisons, organize the answer by theme, method, \
+           or finding rather than paper by paper, using short paragraphs or \
+           bullet points, and keep it readable.\n\n\
+         Papers:\n{block}"
     )
 }
 

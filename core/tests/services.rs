@@ -387,6 +387,70 @@ fn popular_tags_ranked_by_frequency() {
 }
 
 #[test]
+fn synthesis_context_caps_papers_and_preserves_order() {
+    use zn_core::llm::provider::MAX_SYNTHESIS_PAPERS;
+    use zn_core::synthesis::build_context;
+
+    let items: Vec<Item> = (0..MAX_SYNTHESIS_PAPERS + 5)
+        .map(|i| item(&format!("K{i}"), &format!("Paper {i}")))
+        .collect();
+    let ctx = build_context(&items);
+    assert_eq!(ctx.total, MAX_SYNTHESIS_PAPERS + 5);
+    assert_eq!(ctx.included, MAX_SYNTHESIS_PAPERS, "capped");
+    assert_eq!(ctx.papers.len(), MAX_SYNTHESIS_PAPERS);
+    assert_eq!(ctx.papers[0].title, "Paper 0", "order preserved");
+    assert_eq!(ctx.papers[MAX_SYNTHESIS_PAPERS - 1].title, format!("Paper {}", MAX_SYNTHESIS_PAPERS - 1));
+}
+
+#[test]
+fn synthesis_prompt_numbers_papers_and_pins_english() {
+    use zn_core::llm::provider::{synthesis_system_prompt, PaperBrief};
+
+    let papers = vec![
+        PaperBrief {
+            title: "Denoising Diffusion".into(),
+            creators: vec!["Ho".into()],
+            year: Some(2020),
+            publication: Some("NeurIPS".into()),
+            abstract_text: Some("We present high quality image synthesis.".into()),
+        },
+        PaperBrief {
+            title: "Attention Is All You Need".into(),
+            creators: vec!["Vaswani".into()],
+            year: Some(2017),
+            publication: Some("NeurIPS".into()),
+            abstract_text: None,
+        },
+    ];
+    let prompt = synthesis_system_prompt(&papers);
+    assert!(prompt.contains("[Paper 1]"));
+    assert!(prompt.contains("[Paper 2]"));
+    assert!(prompt.contains("set of 2 academic"));
+    assert!(prompt.contains("Always answer in English"));
+    assert!(prompt.contains("Denoising Diffusion"));
+    // A paper with no abstract still appears, flagged as unavailable.
+    assert!(prompt.contains("Abstract: (not available)"));
+}
+
+#[test]
+fn synthesis_prompt_truncates_long_abstracts() {
+    use zn_core::llm::provider::{synthesis_system_prompt, PaperBrief, MAX_SYNTHESIS_ABSTRACT_CHARS};
+
+    let long = "word ".repeat(2000); // ~10k chars
+    let papers = vec![PaperBrief {
+        title: "Long".into(),
+        creators: vec![],
+        year: None,
+        publication: None,
+        abstract_text: Some(long),
+    }];
+    let prompt = synthesis_system_prompt(&papers);
+    assert!(prompt.contains('…'), "long abstract truncated with ellipsis");
+    // The whole prompt stays bounded well under the raw abstract length.
+    assert!(prompt.len() < MAX_SYNTHESIS_ABSTRACT_CHARS * 4);
+}
+
+#[test]
 fn summary_note_html_escapes_and_carries_marker() {
     use zn_core::models::SUMMARY_NOTE_MARKER;
     let s = StoredSummary {
