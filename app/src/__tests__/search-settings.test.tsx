@@ -62,6 +62,7 @@ const settings: AppSettings = {
   syncSummaryNotes: true,
   zoteroBaseUrl: "http://127.0.0.1:23119",
   fileRoot: null,
+  outputLanguage: "English",
 };
 
 beforeEach(() => {

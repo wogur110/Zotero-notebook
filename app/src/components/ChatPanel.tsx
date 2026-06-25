@@ -74,7 +74,7 @@ export default function ChatPanel({ item, defaultProvider }: Props) {
             <p className="text-sm font-medium">Ask anything about this paper</p>
             <p className="max-w-sm text-xs text-muted">
               Answers are grounded in the paper's extracted text (when
-              available) and are always in English.
+              available); the output language is set in Settings.
             </p>
             <div className="flex flex-col gap-1.5">
               {SUGGESTIONS.map((s) => (
@@ -152,8 +152,8 @@ export default function ChatPanel({ item, defaultProvider }: Props) {
           </button>
         </form>
         <p className="mt-1.5 text-[11px] text-faint">
-          Each question sends the paper's text to the AI provider · answers in
-          English
+          Each question sends the paper's text to the AI provider · output
+          language is set in Settings
         </p>
       </div>
     </div>

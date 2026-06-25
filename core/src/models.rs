@@ -467,10 +467,19 @@ pub struct AppSettings {
     /// item (updated in place on regeneration).
     #[serde(default = "default_true")]
     pub sync_summary_notes: bool,
+    /// Language for AI-generated prose (summaries, chat, synthesis, and the
+    /// classify/audit rationale). The value is injected into prompts verbatim
+    /// (e.g. "English", "Korean"); structured fields stay English regardless.
+    #[serde(default = "default_output_language")]
+    pub output_language: String,
 }
 
 fn default_true() -> bool {
     true
+}
+
+pub fn default_output_language() -> String {
+    "English".into()
 }
 
 impl Default for AppSettings {
@@ -485,6 +494,7 @@ impl Default for AppSettings {
             file_root: None,
             write_back_abstracts: true,
             sync_summary_notes: true,
+            output_language: default_output_language(),
         }
     }
 }

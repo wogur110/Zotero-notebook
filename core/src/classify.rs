@@ -62,6 +62,8 @@ pub fn build_request(item: &Item, library: &Library) -> ClassifyRequest {
         tags: item.tags.clone(),
         existing_paths,
         existing_tags: popular_tags(library, TAG_VOCAB_SIZE),
+        // English by default; the Tauri command overrides from settings.
+        language: crate::models::default_output_language(),
     }
 }
 
@@ -215,6 +217,7 @@ pub fn build_audit_request(item: &Item, library: &Library) -> Option<AuditReques
         tags: base.tags,
         current_paths: memberships.into_iter().map(|(_, p)| p).collect(),
         existing_paths: base.existing_paths,
+        language: base.language,
     })
 }
 

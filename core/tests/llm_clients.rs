@@ -26,6 +26,7 @@ fn summarize_req() -> SummarizeRequest {
         publication: Some("NeurIPS".into()),
         abstract_text: Some("We present high quality image synthesis.".into()),
         body_excerpt: None,
+        language: "English".into(),
     }
 }
 
@@ -39,6 +40,7 @@ fn classify_req() -> ClassifyRequest {
         tags: vec!["diffusion".into()],
         existing_paths: vec![vec!["Computer Vision".into()]],
         existing_tags: vec!["diffusion".into(), "vision".into()],
+        language: "English".into(),
     }
 }
 
@@ -52,6 +54,7 @@ fn audit_req() -> AuditRequest {
         tags: vec![],
         current_paths: vec![vec!["Hardware".into()]],
         existing_paths: vec![vec!["Hardware".into()], vec!["NLP".into()]],
+        language: "English".into(),
     }
 }
 

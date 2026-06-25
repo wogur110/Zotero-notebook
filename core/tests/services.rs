@@ -513,7 +513,7 @@ fn synthesis_prompt_numbers_papers_and_pins_english() {
             abstract_text: None,
         },
     ];
-    let prompt = synthesis_system_prompt(&papers);
+    let prompt = synthesis_system_prompt(&papers, "English");
     assert!(prompt.contains("[Paper 1]"));
     assert!(prompt.contains("[Paper 2]"));
     assert!(prompt.contains("set of 2 academic"));
@@ -535,10 +535,47 @@ fn synthesis_prompt_truncates_long_abstracts() {
         publication: None,
         abstract_text: Some(long),
     }];
-    let prompt = synthesis_system_prompt(&papers);
+    let prompt = synthesis_system_prompt(&papers, "English");
     assert!(prompt.contains('…'), "long abstract truncated with ellipsis");
     // The whole prompt stays bounded well under the raw abstract length.
     assert!(prompt.len() < MAX_SYNTHESIS_ABSTRACT_CHARS * 4);
+}
+
+#[test]
+fn prompts_honor_the_output_language() {
+    use zn_core::classify::build_request;
+    use zn_core::llm::provider::{
+        classify_prompt, summarize_prompt, synthesis_system_prompt, PaperBrief, SummarizeRequest,
+    };
+
+    let mut sreq = SummarizeRequest {
+        title: "T".into(),
+        creators: vec![],
+        year: None,
+        publication: None,
+        abstract_text: None,
+        body_excerpt: None,
+        language: "Korean".into(),
+    };
+    assert!(summarize_prompt(&sreq).contains("in Korean"));
+    sreq.language = "English".into();
+    assert!(summarize_prompt(&sreq).contains("in English"));
+
+    // Classify localizes only the rationale; the language flows in via the
+    // request field (the Tauri command sets it from settings).
+    let lib = library();
+    let mut creq = build_request(&lib.items[0], &lib);
+    creq.language = "Korean".into();
+    assert!(classify_prompt(&creq).contains("rationale` field in Korean"));
+
+    let papers = vec![PaperBrief {
+        title: "P".into(),
+        creators: vec![],
+        year: None,
+        publication: None,
+        abstract_text: None,
+    }];
+    assert!(synthesis_system_prompt(&papers, "Korean").contains("answer in Korean"));
 }
 
 #[test]

@@ -51,6 +51,9 @@ pub struct SummarizeRequest {
     /// "full-text summary" action — the default summary stays cheap.
     #[serde(default)]
     pub body_excerpt: Option<String>,
+    /// Language for the generated summary (injected into the prompt verbatim).
+    #[serde(default = "crate::models::default_output_language")]
+    pub language: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -68,6 +71,9 @@ pub struct ClassifyRequest {
     /// established vocabulary instead of inventing near-duplicates.
     #[serde(default)]
     pub existing_tags: Vec<String>,
+    /// Language for the `rationale` field (the path/tags stay structured).
+    #[serde(default = "crate::models::default_output_language")]
+    pub language: String,
 }
 
 /// What the model must return for a classify call. Clients enforce this
@@ -103,6 +109,9 @@ pub struct AuditRequest {
     pub current_paths: Vec<Vec<String>>,
     /// Every existing collection path (Unclassified excluded).
     pub existing_paths: Vec<Vec<String>>,
+    /// Language for the `rationale` field (the path stays structured).
+    #[serde(default = "crate::models::default_output_language")]
+    pub language: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -212,31 +221,34 @@ pub fn summarize_prompt(req: &SummarizeRequest) -> String {
         req.publication.as_deref(),
         req.abstract_text.as_deref(),
     );
+    let lang = req.language.as_str();
     match req.body_excerpt.as_deref().filter(|b| !b.trim().is_empty()) {
         Some(body) => format!(
             "You are helping a researcher maintain notes on academic papers.\n\
-             Write a summary of the following paper in English, 5 to 8 sentences,\n\
+             Write a summary of the following paper in {lang}, 5 to 8 sentences,\n\
              as a single plain-text paragraph (no markdown, no headings, no lists).\n\
              Cover: the problem addressed, the key idea or method, the main\n\
              experimental results (with concrete numbers when the text provides\n\
              them), and the significance or limitations. Base the summary on the\n\
              metadata and the full-text excerpt below; do not invent anything\n\
-             that is not present.\n\n{meta}\n\
+             that is not present. Keep proper nouns, author names, and technical\n\
+             terms in their original form.\n\n{meta}\n\
              Full text (may be truncated):\n\"\"\"\n{body}\n\"\"\"\n"
         ),
         None => format!(
             "You are helping a researcher maintain notes on academic papers.\n\
-             Write a summary of the following paper in English, 5 to 8 sentences,\n\
+             Write a summary of the following paper in {lang}, 5 to 8 sentences,\n\
              as a single plain-text paragraph (no markdown, no headings, no lists).\n\
              Cover: the problem addressed, the key idea or method, and the main\n\
              results or significance. Base the summary only on the metadata below;\n\
-             do not invent specific numbers that are not present.\n\n{meta}"
+             do not invent specific numbers that are not present. Keep proper\n\
+             nouns, author names, and technical terms in their original form.\n\n{meta}"
         ),
     }
 }
 
-/// System prompt for the per-paper "Ask AI" chat. Answers are ALWAYS in
-/// English (user decision), grounded in the provided material.
+/// System prompt for the per-paper "Ask AI" chat, grounded in the provided
+/// material. Answers are in `language` (the user's configured output language).
 pub fn chat_system_prompt(
     title: &str,
     creators: &[String],
@@ -244,6 +256,7 @@ pub fn chat_system_prompt(
     publication: Option<&str>,
     abstract_text: Option<&str>,
     body_excerpt: Option<&str>,
+    language: &str,
 ) -> String {
     let meta = meta_block(title, creators, year, publication, abstract_text);
     let body = match body_excerpt.filter(|b| !b.trim().is_empty()) {
@@ -256,7 +269,7 @@ pub fn chat_system_prompt(
         "You are helping a researcher understand one specific academic paper.\n\
          Answer questions about it using the material below.\n\n\
          Rules:\n\
-         - Always answer in English, regardless of the language of the question.\n\
+         - Always answer in {language}, regardless of the language of the question.\n\
          - Ground every claim in the provided text; when the answer is not in\n\
            the material, say so plainly instead of guessing.\n\
          - Be concise: short paragraphs, no headings or bullet lists unless\n\
@@ -301,8 +314,8 @@ fn numbered_paper_block(papers: &[PaperBrief]) -> String {
 /// System prompt for multi-paper synthesis and Q&A (collection overview,
 /// method comparison, "which of these cover X"). Like `chat_system_prompt`
 /// but grounded in a numbered set of papers — metadata + abstracts only, no
-/// PDF text. Answers are ALWAYS in English (user decision).
-pub fn synthesis_system_prompt(papers: &[PaperBrief]) -> String {
+/// PDF text. Answers are in the user's configured `language`.
+pub fn synthesis_system_prompt(papers: &[PaperBrief], language: &str) -> String {
     let n = papers.len();
     let block = numbered_paper_block(papers);
     format!(
@@ -310,7 +323,7 @@ pub fn synthesis_system_prompt(papers: &[PaperBrief]) -> String {
          papers from their personal library. Answer the user's request using \
          only the metadata and abstracts below.\n\n\
          Rules:\n\
-         - Always answer in English, regardless of the language of the request.\n\
+         - Always answer in {language}, regardless of the language of the request.\n\
          - You are working from abstracts and metadata, not the full papers, so \
            ground every claim in the provided text and do not fabricate specific \
            numbers, datasets, or quotes. When the abstracts do not contain enough \
@@ -344,6 +357,7 @@ pub fn classify_prompt(req: &ClassifyRequest) -> String {
     } else {
         req.existing_tags.join(", ")
     };
+    let lang = req.language.as_str();
     format!(
         "You are organizing a researcher's paper library. Assign the paper\n\
          below to exactly one collection, and suggest tags for it.\n\n\
@@ -365,6 +379,9 @@ pub fn classify_prompt(req: &ClassifyRequest) -> String {
             no existing tag describes the topic; new tags should be short,\n\
             lowercase, and specific. Do not repeat tags the paper already\n\
             has.\n\n\
+         Output language:\n\
+         7. Write the `rationale` field in {lang}. Keep the collection path\n\
+            and the tags exactly as specified above — do NOT translate them.\n\n\
          Existing tags in the library:\n{tag_vocab}\n\n\
          Paper:\n{meta}{tags}",
         meta = meta_block(
@@ -396,6 +413,7 @@ pub fn audit_prompt(req: &AuditRequest) -> String {
     } else {
         format!("Tags: {}\n", req.tags.join(", "))
     };
+    let lang = req.language.as_str();
     format!(
         "You are auditing how a researcher's paper library is filed. Decide\n\
          whether the paper below is appropriately filed where it is.\n\n\
@@ -412,7 +430,9 @@ pub fn audit_prompt(req: &AuditRequest) -> String {
             existing collection; only when nothing fits, propose a new path\n\
             (max 3 levels, extending an existing path by at most one new\n\
             level). Never propose \"Unclassified\".\n\
-         4. When misplaced=false, return an empty path array.\n\n\
+         4. When misplaced=false, return an empty path array.\n\
+         5. Write the `rationale` field in {lang}; keep any collection path\n\
+            unchanged (do NOT translate path names).\n\n\
          Paper:\n{meta}{tags}",
         meta = meta_block(
             &req.title,

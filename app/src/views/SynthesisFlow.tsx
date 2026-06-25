@@ -123,7 +123,7 @@ export default function SynthesisFlow({
           </h1>
           <p className="truncate text-xs text-faint">
             {usedCount} {usedCount === 1 ? "paper" : "papers"} · metadata +
-            abstracts · answers in English
+            abstracts
             {capped && (
               <span className="text-warn">
                 {" "}
@@ -227,7 +227,7 @@ export default function SynthesisFlow({
         </form>
         <p className="mt-1.5 text-[11px] text-faint">
           Each question sends the papers' metadata and abstracts to the AI
-          provider · answers in English
+          provider · output language is set in Settings
         </p>
       </div>
     </div>

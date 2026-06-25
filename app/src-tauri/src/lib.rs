@@ -267,6 +267,7 @@ async fn do_summarize(
         publication: item.publication.clone(),
         abstract_text: item.abstract_text.clone(),
         body_excerpt,
+        language: s.output_language.clone(),
     };
     let text = llm.summarize(&req).await?;
     record_usage(state, llm, s, "summary");
@@ -556,6 +557,7 @@ async fn chat_with_item(
         item.publication.as_deref(),
         item.abstract_text.as_deref(),
         body_excerpt.as_deref(),
+        &s.output_language,
     );
 
     let mut on_delta = |t: &str| {
@@ -605,7 +607,7 @@ async fn chat_with_items(
     }
     let ctx = zn_core::synthesis::build_context(&items);
     let llm = build_provider(provider, &s).await?;
-    let system = zn_core::llm::provider::synthesis_system_prompt(&ctx.papers);
+    let system = zn_core::llm::provider::synthesis_system_prompt(&ctx.papers, &s.output_language);
 
     let mut on_delta = |t: &str| {
         if let Err(e) = app.emit(
@@ -664,7 +666,8 @@ async fn classify_items(
         );
         let outcome = async {
             ensure_abstract_synced(&s, &mut item).await;
-            let req = classify::build_request(&item, &library);
+            let mut req = classify::build_request(&item, &library);
+            req.language = s.output_language.clone();
             let resp = llm.classify(&req).await?;
             classify::to_proposal(&item, resp, &library)
         }
@@ -744,8 +747,9 @@ async fn audit_items(
         emit(i, "running", Some(item.title.clone()));
         let outcome = async {
             ensure_abstract_synced(&s, &mut item).await;
-            let req = classify::build_audit_request(&item, &library)
+            let mut req = classify::build_audit_request(&item, &library)
                 .ok_or_else(|| Error::Other("not classified yet — use the Unclassified flow".into()))?;
+            req.language = s.output_language.clone();
             let resp = llm.audit(&req).await?;
             classify::audit_to_proposal(&item, resp, &library)
         }

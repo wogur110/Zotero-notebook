@@ -171,6 +171,8 @@ export interface AppSettings {
   /** Mirror AI summaries into a Zotero child note (updated in place). */
   syncSummaryNotes: boolean;
   fileRoot: string | null;
+  /** Language for AI prose (summaries, chat, synthesis, rationale). */
+  outputLanguage: string;
 }
 
 export interface ProgressEvent {

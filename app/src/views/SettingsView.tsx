@@ -36,6 +36,7 @@ export default function SettingsView({ settings, status, onSave, onClose }: Prop
         <h1 className="text-xl font-semibold tracking-tight">Settings</h1>
 
         <ProviderSection draft={draft} setDraft={setDraft} />
+        <LanguageSection draft={draft} setDraft={setDraft} />
         <ZoteroSection draft={draft} setDraft={setDraft} status={status} />
         <WriteBackSection draft={draft} setDraft={setDraft} />
         <FilesSection draft={draft} setDraft={setDraft} />
@@ -327,6 +328,60 @@ function ProviderConfig({
         </p>
       )}
     </div>
+  );
+}
+
+// --- Output language ---------------------------------------------------
+
+const LANGUAGES: [string, string][] = [
+  ["English", "English"],
+  ["한국어 (Korean)", "Korean"],
+  ["日本語 (Japanese)", "Japanese"],
+  ["中文 (Chinese)", "Simplified Chinese"],
+  ["Español (Spanish)", "Spanish"],
+  ["Français (French)", "French"],
+  ["Deutsch (German)", "German"],
+];
+
+function LanguageSection({
+  draft,
+  setDraft,
+}: {
+  draft: AppSettings;
+  setDraft: (s: AppSettings) => void;
+}) {
+  const known = LANGUAGES.some(([, v]) => v === draft.outputLanguage);
+  return (
+    <Section
+      title="Output language"
+      description="Language for AI-generated text. The app's interface stays in English."
+    >
+      <label className="block max-w-xs">
+        <span className="text-xs text-muted">AI writes in</span>
+        <select
+          className="input mt-1"
+          value={draft.outputLanguage}
+          onChange={(e) =>
+            setDraft({ ...draft, outputLanguage: e.target.value })
+          }
+          aria-label="AI output language"
+        >
+          {!known && (
+            <option value={draft.outputLanguage}>{draft.outputLanguage}</option>
+          )}
+          {LANGUAGES.map(([label, value]) => (
+            <option key={value} value={value}>
+              {label}
+            </option>
+          ))}
+        </select>
+      </label>
+      <p className="text-xs text-faint">
+        Applies to summaries, the Ask AI chat, multi-paper synthesis, and the
+        classification rationale. Collection paths, tags, author names, and
+        technical terms are kept in their original form.
+      </p>
+    </Section>
   );
 }
 
