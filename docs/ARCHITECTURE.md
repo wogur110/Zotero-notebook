@@ -24,8 +24,9 @@ companion Zotero plugin.
 
 1. **Zotero is the single source of truth.** The app never keeps its own
    copy of the library; it loads a fresh snapshot on demand. The only local
-   state is a sidecar SQLite DB (AI summaries, keyed by Zotero item key),
-   JSON settings, and API keys in the OS keychain.
+   state is a sidecar SQLite DB (AI summaries, per-item reading state, cached
+   citation graphs, and an AI usage/cost ledger), JSON settings, and API keys
+   in the OS keychain.
 2. **Writes go through the companion plugin.** Zotero's local API is
    read-only; the plugin executes collection creation / item moves / file
    moves inside Zotero itself, transactionally (see `docs/PLUGIN_API.md`).
@@ -58,10 +59,15 @@ string). The frontend mirror lives in `app/src/api.ts`.
 | `get_library` | — | `Library` | Plugin `/library`; falls back to local API (read-only, `writable: false`). |
 | `get_summary` | `itemKey` | `StoredSummary \| null` | From sidecar DB. |
 | `get_all_summaries` | — | `StoredSummary[]` | Whole sidecar table; powers search-over-summaries and the batch button's "N without a summary" count. |
+| `get_usage_summary` | — | `UsageSummary` | Cumulative AI token/cost totals from the `usage_log` ledger. Also pushed live as a `usage-update` event after each tracked operation. Cost is an approximate list-price estimate (`core/src/pricing.rs`); the local provider is free; chat is not tracked. |
+| `get_reading_states` | — | `ReadingState[]` | The whole `reading_state` sidecar table (status/star/note per item) — powers the status column and the Reading-queue view. |
+| `set_reading_state` | `itemKey`, `status: ReadingStatus \| null`, `starred: bool`, `note: string` | `ReadingState \| null` | Upsert the item's reading state; deletes the row (returns `null`) when status is null, unstarred, and the note is empty (untracked). App-owned local state only — never written back to Zotero. |
+| `fetch_citation_graph` | `itemKey`, `refresh?` | `CitationGraph` | References + citing works from OpenAlex (`core/src/citations.rs`), each tagged with library membership (DOI then normalized-title match). Read-only / suggest-only — no Zotero writes. Cached in the `citation_cache` sidecar table (14-day TTL); `refresh: true` re-fetches. `fetchFailed` is set when the item has no DOI or OpenAlex was unreachable. |
 | `summarize_items` | `itemKeys: string[]`, `provider?` | `StoredSummary[]` | Batch quick-summarize (metadata+abstract only); sequential, emits `summarize-progress`, per-item failures don't abort. |
 | `save_summary_note` | `itemKey` | — | Manual "Save to Zotero": pushes the stored summary as a child note via plugin `/update-item` (upserted in place by marker). |
 | `summarize_item` | `itemKey`, `provider?`, `useFulltext?` | `StoredSummary` | Default: metadata+abstract prompt (cheap). `useFulltext: true` (a separate UI button) additionally sends up to 80k chars of the PDF's extracted text via the plugin. The result records its `source` (fulltext/abstract/metadata) for the UI badge. |
 | `chat_with_item` | `itemKey`, `history: ChatMessage[]`, `provider?` | `string` | Per-paper "Ask AI" chat. Context = metadata + extracted PDF text (80k cap, plugin `/fulltext`). Streams fragments as `chat-delta` events (`ChatDelta`), resolves with the full answer. Answers always in English. |
+| `chat_with_items` | `itemKeys: string[]`, `history: ChatMessage[]`, `provider?` | `string` | Multi-paper synthesis / Q&A over a set of items (a whole collection or an ad-hoc selection). Context = metadata + abstracts only (no PDF text), capped at `MAX_SYNTHESIS_PAPERS` (50), each abstract truncated; built by `synthesis::build_context`. Streams fragments as `synthesis-delta` events (`SynthesisDelta`, no item key), resolves with the full answer. Answers always in English. |
 | `classify_items` | `itemKeys: string[]`, `provider?` | `ClassificationProposal[]` | Sequential; emits `classify-progress` (`ProgressEvent`) per item. |
 | `audit_items` | `itemKeys: string[]`, `provider?` | `AuditProposal[]` | Re-checks already-classified papers ("is the current filing right?"); conservative prompt — flags only when no current collection fits. Emits `audit-progress`. |
 | `apply_classifications` | `decisions: ClassificationDecision[]` | `MoveResult[]` | Plugin move-item per decision; emits `apply-progress`. Continues past per-item failures. Removes the Unclassified membership plus any `removeCollectionKeys` on the decision (audit flow). |
@@ -76,7 +82,16 @@ string). The frontend mirror lives in `app/src/api.ts`.
 
 Events: `zotero-status` (`ZoteroStatus`), `classify-progress`,
 `audit-progress`, `apply-progress`, `summarize-progress` (all
-`ProgressEvent`), `chat-delta` (`ChatDelta`, streamed chat fragments).
+`ProgressEvent`), `chat-delta` (`ChatDelta`, streamed per-paper chat
+fragments), `synthesis-delta` (`SynthesisDelta`, streamed multi-paper
+synthesis/Q&A fragments), `usage-update` (`UsageSummary`, cumulative
+token/cost totals after each tracked AI operation).
+
+Token/cost tracking captures real usage from each provider's non-streaming
+response via an interior-mutable side-channel on the client (`AnyProvider::
+last_usage()`) — no method signatures change. The commands log a `usage_log`
+row (op/provider/model/tokens/cost) and emit `usage-update`. Streaming chat is
+not yet metered.
 
 ## LLM providers
 
@@ -118,8 +133,14 @@ variables. Search is client-side Fuse.js over the loaded library plus cached
 summaries, opened with `Ctrl/Cmd+K`.
 
 Views: Library (sidebar tree + item table), Item detail (modal), Unclassified
-(list + "Classify with AI" → review table → apply with progress), Settings
+(list + "Classify with AI" → review table → apply with progress), Reading
+queue (cross-collection list of to-read/reading items), Settings
 (providers/keys/models/file root/plugin install), Onboarding (first run).
+
+New-import detection is purely client-side: `App.tsx` diffs the Unclassified
+key set across library refreshes (refresh button / window-focus, throttled)
+and shows a dismissible banner that routes into the Unclassified review flow —
+no backend command, no auto-filing.
 
 ## Building
 
