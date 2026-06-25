@@ -1,17 +1,33 @@
 import { useCallback, useEffect, useState } from "react";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import * as api from "../api";
-import type { Item, Library, ProviderId, StoredSummary } from "../types";
-import { collectionPath, formatAuthors, pathLabel } from "../lib/library";
+import type {
+  Item,
+  Library,
+  ProviderId,
+  ReadingState,
+  ReadingStatus,
+  StoredSummary,
+} from "../types";
+import {
+  collectionPath,
+  formatAuthors,
+  pathLabel,
+  READING_STATUS_LABEL,
+} from "../lib/library";
 import ChatPanel from "./ChatPanel";
+import CitationPanel from "./CitationPanel";
 import {
   IconAlert,
+  IconBookmark,
   IconCheck,
   IconExternalLink,
   IconFileText,
   IconFolderOpen,
   IconLoader,
+  IconShare2,
   IconSparkles,
+  IconStar,
   IconX,
 } from "./icons";
 
@@ -19,15 +35,22 @@ interface Props {
   item: Item;
   library: Library;
   defaultProvider: ProviderId;
+  readingState: ReadingState | null;
+  onReadingChanged: (next: ReadingState | null) => void;
+  /** Open another item (e.g. an in-library reference) in this modal. */
+  onOpenItem?: (key: string) => void;
   onClose: () => void;
 }
 
-type Tab = "overview" | "chat";
+type Tab = "overview" | "chat" | "references";
 
 export default function ItemDetailModal({
   item,
   library,
   defaultProvider,
+  readingState,
+  onReadingChanged,
+  onOpenItem,
   onClose,
 }: Props) {
   const [tab, setTab] = useState<Tab>("overview");
@@ -90,12 +113,23 @@ export default function ItemDetailModal({
           <TabButton active={tab === "chat"} onClick={() => setTab("chat")}>
             <IconSparkles size={13} /> Ask AI
           </TabButton>
+          <TabButton
+            active={tab === "references"}
+            onClick={() => setTab("references")}
+          >
+            <IconShare2 size={13} /> References
+          </TabButton>
         </div>
 
         {tab === "overview" ? (
           <div className="min-h-0 flex-1 space-y-5 overflow-y-auto px-6 pb-6 pt-4">
             <MetadataGrid item={item} library={library} />
             <FileRow item={item} />
+            <ReadingStatusSection
+              item={item}
+              readingState={readingState}
+              onChanged={onReadingChanged}
+            />
             <SummarySection item={item} defaultProvider={defaultProvider} />
             {item.abstractText && (
               <section>
@@ -108,8 +142,10 @@ export default function ItemDetailModal({
               </section>
             )}
           </div>
-        ) : (
+        ) : tab === "chat" ? (
           <ChatPanel item={item} defaultProvider={defaultProvider} />
+        ) : (
+          <CitationPanel item={item} onOpenItem={onOpenItem} />
         )}
       </div>
     </div>

@@ -83,6 +83,30 @@ export const chatWithItem = (
     provider: provider ?? null,
   });
 
+/**
+ * One multi-paper synthesis / Q&A turn over a set of items (a whole
+ * collection or an ad-hoc selection). The answer also streams via
+ * `onSynthesisDelta`.
+ */
+export const chatWithItems = (
+  itemKeys: string[],
+  history: ChatMessage[],
+  provider?: ProviderId,
+) =>
+  invoke<string>("chat_with_items", {
+    itemKeys,
+    history,
+    provider: provider ?? null,
+  });
+
+/**
+ * The citation graph (references + citing works) for an item, each entry
+ * tagged with library membership. Read-only. Cached server-side; `refresh`
+ * forces a re-fetch from OpenAlex.
+ */
+export const fetchCitationGraph = (itemKey: string, refresh = false) =>
+  invoke<CitationGraph>("fetch_citation_graph", { itemKey, refresh });
+
 export const classifyItems = (itemKeys: string[], provider?: ProviderId) =>
   invoke<ClassificationProposal[]>("classify_items", {
     itemKeys,
