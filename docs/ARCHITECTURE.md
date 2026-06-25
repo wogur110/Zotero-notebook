@@ -61,7 +61,7 @@ string). The frontend mirror lives in `app/src/api.ts`.
 | `get_all_summaries` | — | `StoredSummary[]` | Whole sidecar table; powers search-over-summaries and the batch button's "N without a summary" count. |
 | `get_usage_summary` | — | `UsageSummary` | Cumulative AI token/cost totals from the `usage_log` ledger. Also pushed live as a `usage-update` event after each tracked operation. Cost is an approximate list-price estimate (`core/src/pricing.rs`); the local provider is free; chat is not tracked. |
 | `get_reading_states` | — | `ReadingState[]` | The whole `reading_state` sidecar table (status/star/note per item) — powers the status column and the Reading-queue view. |
-| `set_reading_state` | `itemKey`, `status: ReadingStatus \| null`, `starred: bool`, `note: string` | `ReadingState \| null` | Upsert the item's reading state; deletes the row (returns `null`) when status is null, unstarred, and the note is empty (untracked). App-owned local state only — never written back to Zotero. |
+| `set_reading_state` | `itemKey`, `status: ReadingStatus \| null`, `starred: bool`, `note: string` | `ReadingState \| null` | Upsert the item's reading state. Status / star / note are independent — starring never forces a status (`status` stays `null`). Deletes the row (returns `null`) when status is null, unstarred, and the note is empty (untracked). App-owned local state only — never written back to Zotero. The star powers the Starred view; an explicit to-read/reading status powers the Reading queue. |
 | `fetch_citation_graph` | `itemKey`, `refresh?` | `CitationGraph` | References + citing works from OpenAlex (`core/src/citations.rs`), each tagged with library membership (DOI then normalized-title match). Read-only / suggest-only — no Zotero writes. Cached in the `citation_cache` sidecar table (14-day TTL); `refresh: true` re-fetches. `fetchFailed` is set when the item has no DOI or OpenAlex was unreachable. |
 | `summarize_items` | `itemKeys: string[]`, `provider?` | `StoredSummary[]` | Batch quick-summarize (metadata+abstract only); sequential, emits `summarize-progress`, per-item failures don't abort. |
 | `save_summary_note` | `itemKey` | — | Manual "Save to Zotero": pushes the stored summary as a child note via plugin `/update-item` (upserted in place by marker). |
@@ -134,8 +134,10 @@ summaries, opened with `Ctrl/Cmd+K`.
 
 Views: Library (sidebar tree + item table), Item detail (modal), Unclassified
 (list + "Classify with AI" → review table → apply with progress), Reading
-queue (cross-collection list of to-read/reading items), Settings
-(providers/keys/models/file root/plugin install), Onboarding (first run).
+queue (cross-collection list of to-read/reading items), Starred
+(cross-collection list of starred items, decoupled from reading status),
+Settings (providers/keys/models/file root/plugin install), Onboarding (first
+run).
 
 New-import detection is purely client-side: `App.tsx` diffs the Unclassified
 key set across library refreshes (refresh button / window-focus, throttled)

@@ -15,7 +15,7 @@
 "use strict";
 
 var ZoteroNotebook = {
-  version: "1.4.0",
+  version: "1.4.1",
   registeredPaths: [],
 };
 

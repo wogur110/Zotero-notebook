@@ -78,10 +78,15 @@ reading state, cached citation graphs, and a usage ledger).
   you review every proposed move (current → suggested, with rationale) before
   anything changes.
 - **Reading queue & status** 🆕 — mark any paper *To read* / *Reading* /
-  *Read*, flag priorities with a ⭐ star, and jot a private note, all in the
-  paper popup. A status column appears in every list and a dedicated **Reading
-  queue** view collects what's still unread (starred first). Stored locally —
-  never written back to Zotero. See [Reading queue](#reading-queue).
+  *Read* and jot a private note in the paper popup. A status column appears in
+  every list and a dedicated **Reading queue** view collects what's still
+  unread. Stored locally — never written back to Zotero. See
+  [Reading queue](#reading-queue).
+- **Starred papers** 🆕 — ⭐ the important ones with a single click from any
+  list row (or the paper popup) and review them together in the **Starred**
+  view. The star is independent of reading status — you can star a paper
+  you've already read, and starring never changes its reading status. Local
+  only. See [Starred](#starred).
 
 ### Discover & connect
 
@@ -223,15 +228,25 @@ tells you when it used the first 50 of a larger set).
 ## Reading queue
 
 Open any paper and set its **Reading status** (*To read* / *Reading* /
-*Read*), toggle a **⭐ priority** star, and add a private note. From then on:
+*Read*) and add a private note. From then on:
 
 - a compact status badge shows in every list (sortable column);
 - the sidebar **Reading queue** gathers everything still *To read* or
   *Reading* across all collections, starred items first;
 - you can still run Summarize / Synthesize / Check filing over the queue.
 
-All of this lives only in the app's local sidecar DB, keyed by Zotero item
-key — nothing is written back to Zotero.
+The status, the star, and the note are independent — none of them implies the
+others. All of this lives only in the app's local sidecar DB, keyed by Zotero
+item key — nothing is written back to Zotero.
+
+## Starred
+
+Click the ⭐ on any row (it appears on hover, stays filled once set) or use the
+star in the paper popup to mark a paper as important. The sidebar **Starred**
+view then collects every starred paper in one place, regardless of its reading
+status — so you can star a paper you've already read, or one you haven't filed
+yet, and still find it here. The star is purely local (not written to Zotero)
+and fully independent of the reading queue.
 
 ## References & citations
 
