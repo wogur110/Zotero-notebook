@@ -284,6 +284,113 @@ function FileRow({ item }: { item: Item }) {
   );
 }
 
+const STATUS_OPTIONS: ReadingStatus[] = ["to_read", "reading", "read"];
+
+function ReadingStatusSection({
+  item,
+  readingState,
+  onChanged,
+}: {
+  item: Item;
+  readingState: ReadingState | null;
+  onChanged: (next: ReadingState | null) => void;
+}) {
+  const status = readingState?.status ?? null;
+  const starred = readingState?.starred ?? false;
+  // Seeded once; the modal remounts per item (keyed), so this stays in sync.
+  const [note, setNote] = useState(readingState?.note ?? "");
+  const [error, setError] = useState<string | null>(null);
+
+  const persist = async (
+    nextStatus: ReadingStatus | null,
+    nextStarred: boolean,
+    nextNote: string,
+  ) => {
+    setError(null);
+    try {
+      onChanged(
+        await api.setReadingState(item.key, nextStatus, nextStarred, nextNote),
+      );
+    } catch (e) {
+      setError(api.errorMessage(e));
+    }
+  };
+
+  const pickStatus = (s: ReadingStatus) =>
+    void persist(status === s ? null : s, starred, note);
+  const toggleStar = () => void persist(status, !starred, note);
+  const saveNote = () => {
+    if (note !== (readingState?.note ?? "")) void persist(status, starred, note);
+  };
+  const clear = () => {
+    setNote("");
+    void persist(null, false, "");
+  };
+
+  const tracked = status !== null || starred || note.trim() !== "";
+
+  return (
+    <section className="rounded-lg border border-edge bg-raised p-4">
+      <div className="mb-2 flex items-center gap-2">
+        <span className="text-accent">
+          <IconBookmark size={15} />
+        </span>
+        <h3 className="text-sm font-semibold">Reading status</h3>
+        <div className="flex-1" />
+        {tracked && (
+          <button className="btn-ghost py-0.5! text-xs" onClick={clear}>
+            Clear
+          </button>
+        )}
+      </div>
+      <div className="flex flex-wrap items-center gap-2">
+        <div className="inline-flex overflow-hidden rounded-md border border-edge">
+          {STATUS_OPTIONS.map((s) => (
+            <button
+              key={s}
+              onClick={() => pickStatus(s)}
+              aria-pressed={status === s}
+              className={`px-2.5 py-1 text-xs font-medium transition-colors ${
+                status === s
+                  ? "bg-accent text-accent-text"
+                  : "text-muted hover:bg-inset"
+              }`}
+            >
+              {READING_STATUS_LABEL[s]}
+            </button>
+          ))}
+        </div>
+        <button
+          onClick={toggleStar}
+          aria-pressed={starred}
+          title="Mark as priority"
+          className={`btn-secondary py-1! text-xs ${starred ? "text-accent" : ""}`}
+        >
+          <IconStar
+            size={13}
+            fill={starred ? "currentColor" : "none"}
+            strokeWidth={starred ? 0 : 1.5}
+          />
+          {starred ? "Priority" : "Set priority"}
+        </button>
+      </div>
+      <textarea
+        className="input mt-2 resize-none"
+        rows={2}
+        placeholder="Personal note (e.g. why it matters, what to check)…"
+        value={note}
+        onChange={(e) => setNote(e.target.value)}
+        onBlur={saveNote}
+      />
+      {error && (
+        <p className="mt-2 rounded-md bg-danger-soft px-2.5 py-1.5 text-xs text-danger">
+          {error}
+        </p>
+      )}
+    </section>
+  );
+}
+
 function SummarySection({
   item,
   defaultProvider,

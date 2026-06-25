@@ -5,6 +5,8 @@ import {
   type Collection,
   type Item,
   type Library,
+  type ReadingState,
+  type ReadingStatus,
 } from "../types";
 
 export interface CollectionNode {
@@ -139,6 +141,37 @@ export function collectionPath(library: Library, key: string): string[] {
 /** All existing collection paths, root→leaf, for pickers and the classifier. */
 export function allPaths(library: Library): string[][] {
   return library.collections.map((c) => collectionPath(library, c.key));
+}
+
+/** Display labels for the reading-status values (UI-facing). */
+export const READING_STATUS_LABEL: Record<ReadingStatus, string> = {
+  to_read: "To read",
+  reading: "Reading",
+  read: "Read",
+};
+
+/**
+ * The active reading queue: items marked "to read" or "reading" (not yet
+ * "read"), ordered starred-first, then reading before to-read, then by title.
+ */
+export function queueItems(
+  library: Library,
+  states: Map<string, ReadingState>,
+): Item[] {
+  const rank = (s: ReadingStatus): number => (s === "reading" ? 0 : 1);
+  return library.items
+    .filter((i) => {
+      const st = states.get(i.key);
+      return st !== undefined && st.status !== "read";
+    })
+    .sort((a, b) => {
+      const sa = states.get(a.key)!;
+      const sb = states.get(b.key)!;
+      if (sa.starred !== sb.starred) return sa.starred ? -1 : 1;
+      const r = rank(sa.status) - rank(sb.status);
+      if (r !== 0) return r;
+      return a.title.localeCompare(b.title, undefined, { sensitivity: "base" });
+    });
 }
 
 export function formatAuthors(creators: string[], max = 3): string {

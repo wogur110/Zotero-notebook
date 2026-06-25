@@ -25,6 +25,7 @@ import OnboardingView from "./views/OnboardingView";
 export type Selection =
   | { kind: "all" }
   | { kind: "unclassified" }
+  | { kind: "queue" }
   | { kind: "collection"; key: string };
 
 export type MainView = "library" | "settings";
@@ -140,6 +141,7 @@ export default function App() {
         library={library}
         selection={selection}
         unclassifiedCount={unclassified.length}
+        queueCount={queue.length}
         onSelect={(sel) => {
           setSelection(sel);
           setView("library");
@@ -185,6 +187,7 @@ export default function App() {
               error={libraryError}
               defaultProvider={settings?.defaultProvider ?? "gemini"}
               summarizedKeys={summarizedKeys}
+              readingStates={readingStates}
               onOpenItem={setOpenItemKey}
               onRetry={refreshLibrary}
               onApplied={refreshLibrary}
@@ -200,6 +203,9 @@ export default function App() {
           item={openItem}
           library={library}
           defaultProvider={settings?.defaultProvider ?? "gemini"}
+          readingState={readingStates.get(openItem.key) ?? null}
+          onReadingChanged={(next) => applyReadingState(openItem.key, next)}
+          onOpenItem={setOpenItemKey}
           onClose={() => {
             setOpenItemKey(null);
             refreshSummaries(); // a summary may have been (re)generated

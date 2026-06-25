@@ -26,6 +26,8 @@ interface Props {
   defaultProvider: ProviderId;
   /** Keys of items that already have a stored AI summary. */
   summarizedKeys: Set<string>;
+  /** Reading state per item key (status badge column + the queue view). */
+  readingStates: Map<string, ReadingState>;
   onOpenItem: (key: string) => void;
   onRetry: () => void;
   onApplied: () => void;
@@ -39,6 +41,7 @@ export default function LibraryView({
   error,
   defaultProvider,
   summarizedKeys,
+  readingStates,
   onOpenItem,
   onRetry,
   onApplied,

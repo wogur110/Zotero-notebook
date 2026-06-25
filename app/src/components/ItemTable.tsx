@@ -1,7 +1,12 @@
-import { memo, useMemo, useState } from "react";
-import type { Item } from "../types";
-import { formatAuthors } from "../lib/library";
-import { IconChevronRight, IconFileText, IconInbox } from "./icons";
+import { memo, useMemo, useRef, useState } from "react";
+import type { Item, ReadingState } from "../types";
+import { formatAuthors, READING_STATUS_LABEL } from "../lib/library";
+import {
+  IconChevronRight,
+  IconFileText,
+  IconInbox,
+  IconStar,
+} from "./icons";
 
 type SortKey = "title" | "year" | "added";
 
@@ -241,6 +246,7 @@ const Row = memo(function Row({
             {item.publication ? ` · ${item.publication}` : ""}
           </p>
         </div>
+        {showStatus && <StatusCell state={state} />}
         <span className="w-12 shrink-0 text-sm text-muted">
           {item.year ?? "—"}
         </span>

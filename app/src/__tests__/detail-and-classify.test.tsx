@@ -91,6 +91,8 @@ describe("ItemDetailModal", () => {
         item={library.items[0]}
         library={library}
         defaultProvider="anthropic"
+        readingState={null}
+        onReadingChanged={() => {}}
         onClose={() => {}}
       />,
     );
@@ -120,6 +122,8 @@ describe("ItemDetailModal", () => {
         item={library.items[0]}
         library={library}
         defaultProvider="gemini"
+        readingState={null}
+        onReadingChanged={() => {}}
         onClose={() => {}}
       />,
     );
@@ -135,6 +139,8 @@ describe("ItemDetailModal Ask AI tab", () => {
         item={library.items[0]}
         library={library}
         defaultProvider="anthropic"
+        readingState={null}
+        onReadingChanged={() => {}}
         onClose={() => {}}
       />,
     );

@@ -298,6 +298,51 @@ impl StoredSummary {
     }
 }
 
+/// Where a paper sits in the user's reading workflow. Stored only in the
+/// local sidecar DB (keyed by Zotero item key) — Zotero has no such concept.
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum ReadingStatus {
+    ToRead,
+    Reading,
+    Read,
+}
+
+impl ReadingStatus {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            ReadingStatus::ToRead => "to_read",
+            ReadingStatus::Reading => "reading",
+            ReadingStatus::Read => "read",
+        }
+    }
+
+    pub fn parse(s: &str) -> Option<ReadingStatus> {
+        match s {
+            "to_read" => Some(ReadingStatus::ToRead),
+            "reading" => Some(ReadingStatus::Reading),
+            "read" => Some(ReadingStatus::Read),
+            _ => None,
+        }
+    }
+}
+
+/// The app-owned reading state for one item: where it sits in the workflow, a
+/// priority star, and a free-text personal note. A row exists only once the
+/// user assigns something; clearing all three deletes it (untracked).
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct ReadingState {
+    pub item_key: String,
+    pub status: ReadingStatus,
+    /// High-priority flag (a star), independent of the status.
+    pub starred: bool,
+    /// Personal note; empty string when none.
+    pub note: String,
+    /// RFC 3339, last time the user changed it.
+    pub updated_at: String,
+}
+
 /// One turn of the "Ask AI" conversation about a paper.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase")]

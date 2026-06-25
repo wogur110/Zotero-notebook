@@ -44,6 +44,7 @@ describe("LibraryView", () => {
         error={null}
         defaultProvider="gemini"
         summarizedKeys={new Set<string>()}
+        readingStates={new Map()}
         onOpenItem={onOpen}
         onRetry={() => {}}
         onApplied={() => {}}
@@ -64,6 +65,7 @@ describe("LibraryView", () => {
         error={null}
         defaultProvider="gemini"
         summarizedKeys={new Set<string>()}
+        readingStates={new Map()}
         onOpenItem={() => {}}
         onRetry={() => {}}
         onApplied={() => {}}
@@ -84,6 +86,7 @@ describe("LibraryView", () => {
         error="Zotero is not running"
         defaultProvider="gemini"
         summarizedKeys={new Set<string>()}
+        readingStates={new Map()}
         onOpenItem={() => {}}
         onRetry={onRetry}
         onApplied={() => {}}
@@ -104,6 +107,7 @@ describe("Sidebar", () => {
         library={library}
         selection={{ kind: "all" }}
         unclassifiedCount={2}
+        queueCount={0}
         onSelect={onSelect}
       />,
     );

@@ -272,6 +272,7 @@ async fn save_summary_note(state: State<'_, AppState>, item_key: String) -> Resu
 
 #[tauri::command]
 async fn summarize_item(
+    app: AppHandle,
     state: State<'_, AppState>,
     item_key: String,
     provider: Option<ProviderId>,
@@ -280,7 +281,7 @@ async fn summarize_item(
     let s = state.settings();
     let library = fetch_library_any(&s).await?;
     let llm = build_provider(provider, &s).await?;
-    do_summarize(
+    let result = do_summarize(
         &state,
         &s,
         &llm,

@@ -3,6 +3,7 @@ import type { Selection } from "../App";
 import type { Library } from "../types";
 import { buildTree, type CollectionNode } from "../lib/library";
 import {
+  IconBookmark,
   IconChevronRight,
   IconFolder,
   IconFolderOpen,
@@ -14,6 +15,7 @@ interface Props {
   library: Library;
   selection: Selection;
   unclassifiedCount: number;
+  queueCount: number;
   onSelect: (sel: Selection) => void;
 }
 
@@ -21,6 +23,7 @@ export default function Sidebar({
   library,
   selection,
   unclassifiedCount,
+  queueCount,
   onSelect,
 }: Props) {
   // The top-level "Unclassified" collection is represented by the dedicated
@@ -94,6 +97,19 @@ export default function Sidebar({
               >
                 {unclassifiedCount}
               </span>
+            }
+          />
+          <SidebarRow
+            icon={<IconBookmark size={16} />}
+            label="Reading queue"
+            selected={selection.kind === "queue"}
+            onClick={() => onSelect({ kind: "queue" })}
+            trailing={
+              queueCount > 0 ? (
+                <span className="badge bg-accent-soft text-accent">
+                  {queueCount}
+                </span>
+              ) : undefined
             }
           />
         </div>

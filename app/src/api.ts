@@ -27,6 +27,28 @@ export const getSummary = (itemKey: string) =>
 export const getAllSummaries = () =>
   invoke<StoredSummary[]>("get_all_summaries");
 
+/** The whole reading queue (every tracked item's status/star/note). */
+export const getReadingStates = () =>
+  invoke<ReadingState[]>("get_reading_states");
+
+/**
+ * Set or clear one item's reading state. Pass `status: null` with no star and
+ * an empty note to untrack it; the resolved state (or null when cleared) is
+ * returned.
+ */
+export const setReadingState = (
+  itemKey: string,
+  status: ReadingStatus | null,
+  starred: boolean,
+  note: string,
+) =>
+  invoke<ReadingState | null>("set_reading_state", {
+    itemKey,
+    status: status ?? null,
+    starred,
+    note,
+  });
+
 /** Batch quick-summarize; progress streams via `onSummarizeProgress`. */
 export const summarizeItems = (itemKeys: string[], provider?: ProviderId) =>
   invoke<StoredSummary[]>("summarize_items", {
